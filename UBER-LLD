@@ -1,0 +1,313 @@
+
+Entities:-
+Rider → Passenger
+Driver → represents driver
+Location → lat and long
+Ride → references Ride
+VehicleType (Enum) → type of vehicle
+DriverStatus (Enum)
+RideStatus (Enum)
+Payment
+
+Service functions
+Rider:-
+requestRide(pickup, dropoff, vehicleType)
+
+Driver:-
+acceptRide(pickup, dropoff)
+goOnline()
+goOffline()
+
+System:-
+assignRide(pickup, dropoff, vehicleType)
+calculateFare(dist, vehicleType)
+pay()
+
+Patterns:-
+
+Singleton:-
+RideManager
+DriverManager
+
+Strategy:-
+PaymentStrategy
+MatchingStrategy
+FareStrategy
+
+
+import java.util.*;
+
+enum VehicleType {
+    BIKE, BUS, SEDAN, CAR
+}
+
+enum DriverStatus {
+    ONLINE, OFFLINE, BUSY
+}
+
+enum RideStatus {
+    REQUESTED, ONGOING, COMPLETED
+}
+
+class Location {
+    private int lat;
+    private int lon;
+
+    public Location(int lat, int lon) {
+        this.lat = lat;
+        this.lon = lon;
+    }
+
+    public int getLat() { return lat; }
+    public int getLon() { return lon; }
+}
+
+class Rider {
+    private int id;
+    private String name;
+    private Location loc;
+
+    public Rider(int id, String name, Location loc) {
+        this.id = id;
+        this.name = name;
+        this.loc = loc;
+    }
+
+    public Location getLoc() { return loc; }
+}
+
+class Driver {
+    private int id;
+    private String name;
+    private Location loc;
+    private VehicleType vehicle;
+    private DriverStatus driverStatus;
+
+    public Driver(int id, String name, Location loc, VehicleType vehicle) {
+        this.id = id;
+        this.name = name;
+        this.loc = loc;
+        this.vehicle = vehicle;
+        this.driverStatus = DriverStatus.ONLINE;
+    }
+
+    public int getId() { return id; }
+    public Location getLoc() { return loc; }
+    public VehicleType getVehicle() { return vehicle; }
+    public DriverStatus getDriverStatus() { return driverStatus; }
+
+    public void setDriverStatus(DriverStatus status) {
+        this.driverStatus = status;
+    }
+}
+
+interface MatchingStrategy {
+    Driver matchDriver(List<Driver> drivers,
+                       Location pickup,
+                       VehicleType vehicleType);
+}
+
+class NearestLocationStrategy implements MatchingStrategy {
+
+    @Override
+    public Driver matchDriver(List<Driver> drivers,
+                              Location pickup,
+                              VehicleType vehicleType) {
+
+        if (drivers == null || drivers.isEmpty()) return null;
+
+        return drivers.get(0);
+    }
+}
+
+interface FareStrategy {
+    double calculateFare(Location pickup, Location dropOff);
+}
+
+class NormalFareStrategy implements FareStrategy {
+
+    @Override
+    public double calculateFare(Location pickup, Location dropOff) {
+        return 10;
+    }
+}
+
+class SurgeFareStrategy implements FareStrategy {
+
+    @Override
+    public double calculateFare(Location pickup, Location dropOff) {
+        return 20;
+    }
+}
+
+interface PaymentStrategy {
+    void pay(double amount);
+}
+
+class UpiPayment implements PaymentStrategy {
+    @Override
+    public void pay(double amount) {
+        System.out.println("Paid ₹" + amount + " using UPI");
+    }
+}
+
+class CardPayment implements PaymentStrategy {
+    @Override
+    public void pay(double amount) {
+        System.out.println("Paid ₹" + amount + " using Card");
+    }
+}
+
+class Ride {
+
+    private Rider rider;
+    private Driver driver;
+    private Location pickup;
+    private Location dropOff;
+
+    private PaymentStrategy paymentStrategy;
+    private FareStrategy fareStrategy;
+
+    private RideStatus status;
+
+    public Ride(Rider rider,
+                Driver driver,
+                Location pickup,
+                Location dropOff,
+                PaymentStrategy paymentStrategy,
+                FareStrategy fareStrategy) {
+
+        this.rider = rider;
+        this.driver = driver;
+        this.pickup = pickup;
+        this.dropOff = dropOff;
+        this.paymentStrategy = paymentStrategy;
+
+        this.fareStrategy = (fareStrategy == null)
+                ? new NormalFareStrategy()
+                : fareStrategy;
+
+        this.status = RideStatus.REQUESTED;
+    }
+
+    public void startRide() {
+        status = RideStatus.ONGOING;
+        System.out.println("Ride started with Driver ID: " + driver.getId());
+    }
+
+    public void completeRide() {
+        status = RideStatus.COMPLETED;
+        driver.setDriverStatus(DriverStatus.ONLINE);
+        System.out.println("Ride completed");
+    }
+
+    public void makePayment() {
+
+        if (status != RideStatus.COMPLETED) {
+            System.out.println("Complete ride before payment!");
+            return;
+        }
+
+        double fare = fareStrategy.calculateFare(pickup, dropOff);
+        paymentStrategy.pay(fare);
+    }
+}
+
+// -------------------- DRIVER MANAGER --------------------
+
+class DriverManager {
+
+    private static DriverManager instance;
+    private List<Driver> drivers = new ArrayList<>();
+
+    private DriverManager() {}
+
+    public static DriverManager getInstance() {
+        if (instance == null) {
+            instance = new DriverManager();
+        }
+        return instance;
+    }
+
+    public void addDriver(Driver driver) {
+        drivers.add(driver);
+    }
+
+    public List<Driver> getDrivers() {
+        return drivers;
+    }
+}
+
+// -------------------- RIDE MANAGER --------------------
+
+class RideManager {
+
+    private MatchingStrategy strategy = new NearestLocationStrategy();
+
+    private static RideManager instance = new RideManager();
+
+    private RideManager() {}
+
+    public static RideManager getInstance() {
+        return instance;
+    }
+
+    public Ride findRide(Rider r,
+                         Location pickup,
+                         Location dropOff,
+                         VehicleType vehicle,
+                         PaymentStrategy paymentStrategy,
+                         FareStrategy fareStrategy) {
+
+        List<Driver> drivers = DriverManager.getInstance().getDrivers();
+
+        Driver d = strategy.matchDriver(drivers, pickup, vehicle);
+
+        if (d == null) {
+            System.out.println("No Driver Found");
+            return null;
+        }
+
+        d.setDriverStatus(DriverStatus.BUSY);
+
+        return new Ride(r, d, pickup, dropOff,
+                        paymentStrategy, fareStrategy);
+    }
+}
+
+// -------------------- MAIN --------------------
+
+public class Main {
+
+    public static void main(String[] args) {
+
+        Rider r1 = new Rider(1, "Ashu", new Location(1, 1));
+        Driver d1 = new Driver(2, "Pankaj",
+                new Location(2, 2),
+                VehicleType.BIKE);
+
+     
+        DriverManager dm = DriverManager.getInstance();
+        dm.addDriver(d1);
+
+        RideManager rm = RideManager.getInstance();
+
+        PaymentStrategy payment = new UpiPayment();
+        FareStrategy surge = new NormalFareStrategy();
+
+        Ride ride = rm.findRide(
+                r1,
+                r1.getLoc(),
+                new Location(5, 5),
+                VehicleType.BIKE,
+                payment,
+                surge
+        );
+
+        if (ride != null) {
+            ride.startRide();
+            ride.completeRide();
+            ride.makePayment();
+        }
+    }
+}
