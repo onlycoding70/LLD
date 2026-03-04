@@ -1,0 +1,385 @@
+- User selects a city and see list of movies
+- then selects a movie and see lists of theatre then he clicks a theatre and see show timings
+- then he clicks on show timings and see the seatmap. 
+- in the seat map he can select a seat where concurrent requests can come. 
+- then he does the payment and gets a ticket. 
+
+Book my show
+
+entities:
+ - user
+ - city
+ - movies
+ - theatres
+ - shows
+ - seatmap for theatre
+ - tickets
+
+Service functions
+
+getMovieByCity()
+getShowsByMovie()
+bookSeat()
+makePayment()
+
+
+import java.time.LocalDateTime;
+import java.util.*;
+
+
+
+enum SeatType {
+    REGULAR,
+    PREMIUM
+}
+
+class User {
+    private final String userId;
+    private final String name;
+
+    public User(String userId, String name) {
+        this.userId = userId;
+        this.name = name;
+    }
+
+    public String getName() {
+        return name;
+    }
+}
+
+class Movie {
+    private final String movieId;
+    private final String title;
+
+    public Movie(String movieId, String title) {
+        this.movieId = movieId;
+        this.title = title;
+    }
+
+    public String getTitle() {
+        return title;
+    }
+}
+
+class City {
+    private final String name;
+    private final List<Theatre> theatres = new ArrayList<>();
+
+    public City(String name) {
+        this.name = name;
+    }
+
+    public void addTheatre(Theatre theatre) {
+        theatres.add(theatre);
+    }
+
+    public List<Theatre> getTheatres() {
+        return theatres;
+    }
+
+    public String getName() {
+        return name;
+    }
+}
+
+class Theatre {
+    private final String theatreId;
+    private final String name;
+    private final List<Show> shows = new ArrayList<>();
+
+    public Theatre(String theatreId, String name) {
+        this.theatreId = theatreId;
+        this.name = name;
+    }
+
+    public void addShow(Show show) {
+        shows.add(show);
+    }
+
+    public List<Show> getShows() {
+        return shows;
+    }
+
+    public String getName() {
+        return name;
+    }
+}
+
+class Seat {
+    private final String seatId;
+    private final SeatType type;
+    private final double price;
+    private boolean isAvailable = true;
+
+    public Seat(String seatId, SeatType type, double price) {
+        this.seatId = seatId;
+        this.type = type;
+        this.price = price;
+    }
+
+    public boolean book() {
+        if (!isAvailable) return false;
+        isAvailable = false;
+        return true;
+    }
+
+    public boolean isAvailable() {
+        return isAvailable;
+    }
+
+    public String getSeatId() {
+        return seatId;
+    }
+
+    public SeatType getType() {
+        return type;
+    }
+
+    public double getPrice() {
+        return price;
+    }
+}
+
+class Show {
+    private final String showId;
+    private final Movie movie;
+    private final Theatre theatre;
+    private final LocalDateTime startTime;
+    private final LocalDateTime endTime;
+    private final List<Seat> seats;
+
+    public Show(String showId,
+                Movie movie,
+                Theatre theatre,
+                LocalDateTime startTime,
+                LocalDateTime endTime,
+                List<Seat> seats) {
+        this.showId = showId;
+        this.movie = movie;
+        this.theatre = theatre;
+        this.startTime = startTime;
+        this.endTime = endTime;
+        this.seats = seats;
+    }
+
+    public Movie getMovie() {
+        return movie;
+    }
+
+    public Theatre getTheatre() {
+        return theatre;
+    }
+
+    public LocalDateTime getStartTime() {
+        return startTime;
+    }
+
+    public List<Seat> getAvailableSeats() {
+        List<Seat> available = new ArrayList<>();
+        for (Seat seat : seats) {
+            if (seat.isAvailable()) {
+                available.add(seat);
+            }
+        }
+        return available;
+    }
+
+    public void displaySeatMap() {
+        System.out.println("\nSeat Map:");
+        for (Seat seat : seats) {
+            System.out.println(
+                    "Seat: " + seat.getSeatId() +
+                    " | Type: " + seat.getType() +
+                    " | Price: " + seat.getPrice() +
+                    " | Available: " + seat.isAvailable()
+            );
+        }
+    }
+}
+
+class Ticket {
+    private static int counter = 1;
+
+    private final int ticketId;
+    private final User user;
+    private final Show show;
+    private final Seat seat;
+
+    public Ticket(User user, Show show, Seat seat) {
+        this.ticketId = counter++;
+        this.user = user;
+        this.show = show;
+        this.seat = seat;
+    }
+
+    public void printTicket() {
+        System.out.println("\n===== TICKET CONFIRMATION =====");
+        System.out.println("Ticket ID: " + ticketId);
+        System.out.println("User: " + user.getName());
+        System.out.println("Movie: " + show.getMovie().getTitle());
+        System.out.println("Theatre: " + show.getTheatre().getName());
+        System.out.println("Time: " + show.getStartTime());
+        System.out.println("Seat: " + seat.getSeatId());
+        System.out.println("================================");
+    }
+}
+
+
+interface PaymentStrategy {
+    boolean pay(double amount);
+}
+
+class CardPayment implements PaymentStrategy {
+    public boolean pay(double amount) {
+        System.out.println("Paid ₹" + amount + " using Card.");
+        return true;
+    }
+}
+
+class UPIPayment implements PaymentStrategy {
+    public boolean pay(double amount) {
+        System.out.println("Paid ₹" + amount + " using UPI.");
+        return true;
+    }
+}
+
+class PaymentService {
+    public boolean processPayment(PaymentStrategy strategy, double amount) {
+        return strategy.pay(amount);
+    }
+}
+
+
+
+class BookingService {
+    private final PaymentService paymentService = new PaymentService();
+
+    public Ticket bookTicket(User user,
+                             Show show,
+                             Seat seat,
+                             PaymentStrategy strategy) {
+
+        if (!seat.isAvailable()) {
+            throw new RuntimeException("Seat already booked!");
+        }
+
+        if (!seat.book()) {
+            throw new RuntimeException("Seat booking failed!");
+        }
+
+        paymentService.processPayment(strategy, seat.getPrice());
+
+        return new Ticket(user, show, seat);
+    }
+}
+
+
+
+class MovieManager {
+
+   
+    private static final MovieManager INSTANCE = new MovieManager();
+
+    private final List<City> cities = new ArrayList<>();
+    private final BookingService bookingService = new BookingService();
+
+    private MovieManager() {}
+
+    public static MovieManager getInstance() {
+        return INSTANCE;
+    }
+
+    public void addCity(City city) {
+        cities.add(city);
+    }
+
+    public List<City> getCities() {
+        return cities;
+    }
+
+    public List<Movie> getMoviesByCity(City city) {
+        Set<Movie> movies = new HashSet<>();
+        for (Theatre theatre : city.getTheatres()) {
+            for (Show show : theatre.getShows()) {
+                movies.add(show.getMovie());
+            }
+        }
+        return new ArrayList<>(movies);
+    }
+
+    public List<Show> getShowsByMovie(City city, Movie movie) {
+        List<Show> result = new ArrayList<>();
+        for (Theatre theatre : city.getTheatres()) {
+            for (Show show : theatre.getShows()) {
+                if (show.getMovie().equals(movie)) {
+                    result.add(show);
+                }
+            }
+        }
+        return result;
+    }
+
+    public Ticket bookSeat(User user,
+                           Show show,
+                           Seat seat,
+                           PaymentStrategy strategy) {
+        return bookingService.bookTicket(user, show, seat, strategy);
+    }
+}
+
+
+public class Main {
+    public static void main(String[] args) {
+
+        MovieManager manager = MovieManager.getInstance();
+
+        City city = new City("Hyderabad");
+        Theatre theatre = new Theatre("T1", "PVR");
+
+        Movie movie = new Movie("M1", "Interstellar");
+
+        List<Seat> seats = Arrays.asList(
+                new Seat("A1", SeatType.REGULAR, 200),
+                new Seat("A2", SeatType.PREMIUM, 400),
+                new Seat("A3", SeatType.REGULAR, 200)
+        );
+
+        Show show = new Show(
+                "S1",
+                movie,
+                theatre,
+                LocalDateTime.now(),
+                LocalDateTime.now().plusHours(3),
+                seats
+        );
+
+        theatre.addShow(show);
+        city.addTheatre(theatre);
+        manager.addCity(city);
+
+        User user = new User("U1", "Sam");
+
+      
+        City selectedCity = manager.getCities().get(0);
+
+        List<Movie> movies = manager.getMoviesByCity(selectedCity);
+        Movie selectedMovie = movies.get(0);
+
+        List<Show> shows = manager.getShowsByMovie(selectedCity, selectedMovie);
+        Show selectedShow = shows.get(0);
+
+        selectedShow.displaySeatMap();
+
+        List<Seat> availableSeats = selectedShow.getAvailableSeats();
+        Seat selectedSeat = availableSeats.get(0);
+
+        Ticket ticket = manager.bookSeat(
+                user,
+                selectedShow,
+                selectedSeat,
+                new CardPayment()
+        );
+
+        ticket.printTicket();
+    }
+}
