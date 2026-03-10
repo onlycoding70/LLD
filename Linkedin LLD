@@ -1,0 +1,300 @@
+
+import java.util.*;
+
+// ---------------- ENUMS ----------------
+enum NotificationType {
+    CONNECTION_REQUEST,
+    JOB_POSTING,
+    LIKE,
+    COMMENT
+}
+
+// ---------------- OBSERVER ----------------
+interface IObserver {
+    void update(Notification notification);
+}
+
+// ---------------- OBSERVABLE (Used ONLY for Post) ----------------
+abstract class Observable {
+    private List<IObserver> observers = new ArrayList<>();
+
+    public void addObserver(IObserver observer) {
+        observers.add(observer);
+    }
+
+    public void notifyObservers(Notification notification) {
+        for (IObserver observer : observers) {
+            observer.update(notification);
+        }
+    }
+}
+
+// ---------------- NOTIFICATION ----------------
+class Notification {
+    private final NotificationType type;
+    private final String content;
+
+    public Notification(NotificationType type, String content) {
+        this.type = type;
+        this.content = content;
+    }
+
+    public String getContent() {
+        return content;
+    }
+}
+
+// ---------------- USER ----------------
+class User implements IObserver {
+
+    private final int id;
+    private final String name;
+    private List<User> connections = new ArrayList<>();
+
+    private User(int id, String name) {
+        this.id = id;
+        this.name = name;
+    }
+
+    public int getId() { return id; }
+    public String getName() { return name; }
+
+    public void addConnection(User user) {
+        connections.add(user);
+    }
+
+    public List<User> getConnections() {
+        return connections;
+    }
+
+    @Override
+    public void update(Notification notification) {
+        System.out.println("Notification for " + name + ": " + notification.getContent());
+    }
+
+    // BUILDER
+    public static class Builder {
+        private static int seqId = 0;
+        private int id;
+        private String name;
+
+        public Builder(String name) {
+            this.id = ++seqId;
+            this.name = name;
+        }
+
+        public User build() {
+            return new User(id, name);
+        }
+    }
+}
+
+// ---------------- POST----------------
+class Post extends Observable {
+
+    private final int postId;
+    private final User author;
+    private final String content;
+
+    private List<User> likedUsers = new ArrayList<>();
+    private List<String> comments = new ArrayList<>();
+
+    public Post(int postId, User author, String content) {
+        this.postId = postId;
+        this.author = author;
+        this.content = content;
+    }
+
+    public int getPostId() { return postId; }
+    public User getAuthor() { return author; }
+    public String getContent() { return content; }
+
+    // Broadcast new post to observers (connections)
+    public void publish() {
+        Notification notification =
+                new Notification(NotificationType.JOB_POSTING,
+                        "New post from " + author.getName());
+
+        notifyObservers(notification);
+    }
+
+    public void addLike(User user) {
+        likedUsers.add(user);
+    }
+
+    public void addComment(User user, String text) {
+        comments.add(user.getName() + ": " + text);
+    }
+
+    public int getLikeCount() { return likedUsers.size(); }
+    public int getCommentCount() { return comments.size(); }
+}
+
+// ---------------- NOTIFICATION SERVICE ----------------
+class NotificationService {
+
+    private static final NotificationService instance = new NotificationService();
+
+    private NotificationService() {}
+
+    public static NotificationService getInstance() {
+        return instance;
+    }
+
+    public void sendNotification(User to, NotificationType type, String message) {
+        to.update(new Notification(type, message));
+    }
+}
+
+// ---------------- CONNECTION SERVICE ----------------
+class ConnectionService {
+
+    private static final ConnectionService instance = new ConnectionService();
+    private NotificationService notificationService = NotificationService.getInstance();
+
+    private ConnectionService() {}
+
+    public static ConnectionService getInstance() {
+        return instance;
+    }
+
+    public void connect(User from, User to) {
+        from.addConnection(to);
+        to.addConnection(from);
+
+        notificationService.sendNotification(
+                to,
+                NotificationType.CONNECTION_REQUEST,
+                "You are now connected with " + from.getName()
+        );
+    }
+}
+
+// ---------------- NEWS FEED SERVICE ----------------
+class NewsFeedService {
+
+    private static final NewsFeedService instance = new NewsFeedService();
+    private static int postSeqId = 0;
+
+    private Map<Integer, Post> allPosts = new HashMap<>();
+    private NotificationService notificationService = NotificationService.getInstance();
+
+    private NewsFeedService() {}
+
+    public static NewsFeedService getInstance() {
+        return instance;
+    }
+
+    public Post createPost(User author, String content) {
+
+        Post post = new Post(++postSeqId, author, content);
+
+        // Add all connections as observers
+        for (User connection : author.getConnections()) {
+            post.addObserver(connection);
+        }
+
+        post.publish(); // Observer pattern used here
+
+        allPosts.put(post.getPostId(), post);
+        return post;
+    }
+
+    public void likePost(User user, int postId) {
+
+        Post post = allPosts.get(postId);
+        if (post == null) return;
+
+        post.addLike(user);
+
+        // Direct notification (NOT Observer)
+        if (post.getAuthor() != user) {
+            notificationService.sendNotification(
+                    post.getAuthor(),
+                    NotificationType.LIKE,
+                    user.getName() + " liked your post"
+            );
+        }
+    }
+
+    public void commentOnPost(User user, int postId, String text) {
+
+        Post post = allPosts.get(postId);
+        if (post == null) return;
+
+        post.addComment(user, text);
+
+        // Direct notification (NOT Observer)
+        if (post.getAuthor() != user) {
+            notificationService.sendNotification(
+                    post.getAuthor(),
+                    NotificationType.COMMENT,
+                    user.getName() + " commented: " + text
+            );
+        }
+    }
+
+    public void displayPost(int postId) {
+        Post post = allPosts.get(postId);
+        if (post == null) return;
+
+        System.out.println("\nPost: " + post.getContent());
+        System.out.println("Likes: " + post.getLikeCount());
+        System.out.println("Comments: " + post.getCommentCount());
+    }
+}
+
+// ---------------- LINKEDIN APP ----------------
+class LinkedinApp {
+
+    private static final LinkedinApp instance = new LinkedinApp();
+
+    private ConnectionService connectionService = ConnectionService.getInstance();
+    private NewsFeedService newsFeedService = NewsFeedService.getInstance();
+
+    private LinkedinApp() {}
+
+    public static LinkedinApp getInstance() {
+        return instance;
+    }
+
+    public void connect(User from, User to) {
+        connectionService.connect(from, to);
+    }
+
+    public Post createPost(User author, String content) {
+        return newsFeedService.createPost(author, content);
+    }
+
+    public void likePost(User user, int postId) {
+        newsFeedService.likePost(user, postId);
+    }
+
+    public void commentOnPost(User user, int postId, String text) {
+        newsFeedService.commentOnPost(user, postId, text);
+    }
+
+    public void displayPost(int postId) {
+        newsFeedService.displayPost(postId);
+    }
+}
+
+// ---------------- MAIN ----------------
+public class Main {
+    public static void main(String[] args) {
+
+        LinkedinApp app = LinkedinApp.getInstance();
+
+        User gopal = new User.Builder("Gopal").build();
+        User rahul = new User.Builder("Rahul").build();
+
+        app.connect(gopal, rahul);
+
+        Post post = app.createPost(gopal, "I got a new job!");
+
+        app.likePost(rahul, post.getPostId());
+        app.commentOnPost(rahul, post.getPostId(), "Congratulations!");
+
+        app.displayPost(post.getPostId());
+    }
+}
