@@ -1,20 +1,26 @@
-
 import java.util.*;
 
-// ---------------- ENUMS ----------------
+
+// ================= ENUMS =================
 enum NotificationType {
     CONNECTION_REQUEST,
+    CONNECTION_ACCEPTED,
     JOB_POSTING,
     LIKE,
     COMMENT
 }
 
-// ---------------- OBSERVER ----------------
+enum ConnectionStatus {
+    PENDING,
+    ACCEPTED
+}
+
+
+// ================= OBSERVER =================
 interface IObserver {
     void update(Notification notification);
 }
 
-// ---------------- OBSERVABLE (Used ONLY for Post) ----------------
 abstract class Observable {
     private List<IObserver> observers = new ArrayList<>();
 
@@ -29,72 +35,141 @@ abstract class Observable {
     }
 }
 
-// ---------------- NOTIFICATION ----------------
+
+// ================= NOTIFICATION =================
 class Notification {
     private final NotificationType type;
-    private final String content;
+    private final String message;
 
-    public Notification(NotificationType type, String content) {
+    public Notification(NotificationType type, String message) {
         this.type = type;
-        this.content = content;
+        this.message = message;
     }
 
-    public String getContent() {
-        return content;
+    public String getMessage() {
+        return message;
     }
 }
 
-// ---------------- USER ----------------
+
+// ================= PROFILE =================
+class Profile {
+    private String summary;
+    private List<String> skills;
+    private List<String> experiences;
+
+    public Profile(String summary, List<String> skills, List<String> experiences) {
+        this.summary = summary;
+        this.skills = skills;
+        this.experiences = experiences;
+    }
+
+    public void display() {
+        System.out.println("Summary: " + summary);
+        System.out.println("Skills: " + skills);
+        System.out.println("Experience: " + experiences);
+    }
+}
+
+
+// ================= USER =================
 class User implements IObserver {
 
     private final int id;
     private final String name;
+    private final Profile profile;
     private List<User> connections = new ArrayList<>();
 
-    private User(int id, String name) {
+    private User(int id, String name, Profile profile) {
         this.id = id;
         this.name = name;
+        this.profile = profile;
     }
 
     public int getId() { return id; }
     public String getName() { return name; }
+    public List<User> getConnections() { return connections; }
 
     public void addConnection(User user) {
         connections.add(user);
     }
 
-    public List<User> getConnections() {
-        return connections;
-    }
-
     @Override
     public void update(Notification notification) {
-        System.out.println("Notification for " + name + ": " + notification.getContent());
+        System.out.println("Notification for " + name + ": " + notification.getMessage());
     }
 
-    // BUILDER
+    // ===== BUILDER =====
     public static class Builder {
         private static int seqId = 0;
+
         private int id;
         private String name;
+
+        private String summary = "";
+        private List<String> skills = new ArrayList<>();
+        private List<String> experiences = new ArrayList<>();
 
         public Builder(String name) {
             this.id = ++seqId;
             this.name = name;
         }
 
+        public Builder setSummary(String summary) {
+            this.summary = summary;
+            return this;
+        }
+
+        public Builder addSkill(String skill) {
+            skills.add(skill);
+            return this;
+        }
+
+        public Builder addExperience(String exp) {
+            experiences.add(exp);
+            return this;
+        }
+
         public User build() {
-            return new User(id, name);
+            Profile profile = new Profile(summary, skills, experiences);
+            return new User(id, name, profile);
         }
     }
 }
 
-// ---------------- POST----------------
+
+// ================= CONNECTION =================
+class Connection {
+    private final int id;
+    private final User from;
+    private final User to;
+    private ConnectionStatus status;
+
+    public Connection(int id, User from, User to) {
+        this.id = id;
+        this.from = from;
+        this.to = to;
+        this.status = ConnectionStatus.PENDING;
+    }
+
+    public int getId() { return id; }
+    public User getFrom() { return from; }
+    public User getTo() { return to; }
+    public ConnectionStatus getStatus() { return status; }
+
+    public void accept() {
+        status = ConnectionStatus.ACCEPTED;
+    }
+}
+
+
+// ================= POST =================
 class Post extends Observable {
 
     private final int postId;
     private final User author;
     private final String content;
+    private final long timestamp;
 
     private List<User> likedUsers = new ArrayList<>();
     private List<String> comments = new ArrayList<>();
@@ -103,18 +178,19 @@ class Post extends Observable {
         this.postId = postId;
         this.author = author;
         this.content = content;
+        this.timestamp = System.currentTimeMillis();
     }
 
     public int getPostId() { return postId; }
     public User getAuthor() { return author; }
     public String getContent() { return content; }
+    public long getTimestamp() { return timestamp; }
+    public int getLikeCount() { return likedUsers.size(); }
 
-    // Broadcast new post to observers (connections)
     public void publish() {
         Notification notification =
                 new Notification(NotificationType.JOB_POSTING,
                         "New post from " + author.getName());
-
         notifyObservers(notification);
     }
 
@@ -125,91 +201,131 @@ class Post extends Observable {
     public void addComment(User user, String text) {
         comments.add(user.getName() + ": " + text);
     }
-
-    public int getLikeCount() { return likedUsers.size(); }
-    public int getCommentCount() { return comments.size(); }
 }
 
-// ---------------- NOTIFICATION SERVICE ----------------
+
+// ================= STRATEGY =================
+interface FeedSortingStrategy {
+    List<Post> sort(List<Post> posts);
+}
+
+// Chronological
+class ChronologicalStrategy implements FeedSortingStrategy {
+    public List<Post> sort(List<Post> posts) {
+        posts.sort((a, b) -> Long.compare(b.getTimestamp(), a.getTimestamp()));
+        return posts;
+    }
+}
+
+// Most Liked
+class MostLikedStrategy implements FeedSortingStrategy {
+    public List<Post> sort(List<Post> posts) {
+        posts.sort((a, b) -> b.getLikeCount() - a.getLikeCount());
+        return posts;
+    }
+}
+
+
+// ================= NOTIFICATION SERVICE =================
 class NotificationService {
-
     private static final NotificationService instance = new NotificationService();
-
     private NotificationService() {}
+    public static NotificationService getInstance() { return instance; }
 
-    public static NotificationService getInstance() {
-        return instance;
-    }
-
-    public void sendNotification(User to, NotificationType type, String message) {
-        to.update(new Notification(type, message));
+    public void notify(User user, NotificationType type, String msg) {
+        user.update(new Notification(type, msg));
     }
 }
 
-// ---------------- CONNECTION SERVICE ----------------
+
+// ================= CONNECTION SERVICE =================
 class ConnectionService {
 
     private static final ConnectionService instance = new ConnectionService();
+    private static int seqId = 0;
+
+    private Map<Integer, Connection> connections = new HashMap<>();
     private NotificationService notificationService = NotificationService.getInstance();
 
     private ConnectionService() {}
 
-    public static ConnectionService getInstance() {
-        return instance;
+    public static ConnectionService getInstance() { return instance; }
+
+    public int sendRequest(User from, User to) {
+        Connection connection = new Connection(++seqId, from, to);
+        connections.put(seqId, connection);
+
+        notificationService.notify(
+                to,
+                NotificationType.CONNECTION_REQUEST,
+                from.getName() + " sent you a connection request"
+        );
+
+        return seqId;
     }
 
-    public void connect(User from, User to) {
+    public void acceptRequest(int id) {
+        Connection connection = connections.get(id);
+        if (connection == null || connection.getStatus() == ConnectionStatus.ACCEPTED)
+            return;
+
+        connection.accept();
+
+        User from = connection.getFrom();
+        User to = connection.getTo();
+
         from.addConnection(to);
         to.addConnection(from);
 
-        notificationService.sendNotification(
-                to,
-                NotificationType.CONNECTION_REQUEST,
-                "You are now connected with " + from.getName()
+        notificationService.notify(
+                from,
+                NotificationType.CONNECTION_ACCEPTED,
+                to.getName() + " accepted your connection request"
         );
     }
 }
 
-// ---------------- NEWS FEED SERVICE ----------------
+
+// ================= NEWS FEED SERVICE =================
 class NewsFeedService {
 
     private static final NewsFeedService instance = new NewsFeedService();
     private static int postSeqId = 0;
 
     private Map<Integer, Post> allPosts = new HashMap<>();
+    private FeedSortingStrategy strategy = new ChronologicalStrategy();
     private NotificationService notificationService = NotificationService.getInstance();
 
     private NewsFeedService() {}
 
-    public static NewsFeedService getInstance() {
-        return instance;
+    public static NewsFeedService getInstance() { return instance; }
+
+    public void setStrategy(FeedSortingStrategy strategy) {
+        this.strategy = strategy;
     }
 
     public Post createPost(User author, String content) {
 
         Post post = new Post(++postSeqId, author, content);
 
-        // Add all connections as observers
         for (User connection : author.getConnections()) {
             post.addObserver(connection);
         }
 
-        post.publish(); // Observer pattern used here
-
+        post.publish();
         allPosts.put(post.getPostId(), post);
+
         return post;
     }
 
     public void likePost(User user, int postId) {
-
         Post post = allPosts.get(postId);
         if (post == null) return;
 
         post.addLike(user);
 
-        // Direct notification (NOT Observer)
         if (post.getAuthor() != user) {
-            notificationService.sendNotification(
+            notificationService.notify(
                     post.getAuthor(),
                     NotificationType.LIKE,
                     user.getName() + " liked your post"
@@ -218,15 +334,13 @@ class NewsFeedService {
     }
 
     public void commentOnPost(User user, int postId, String text) {
-
         Post post = allPosts.get(postId);
         if (post == null) return;
 
         post.addComment(user, text);
 
-        // Direct notification (NOT Observer)
         if (post.getAuthor() != user) {
-            notificationService.sendNotification(
+            notificationService.notify(
                     post.getAuthor(),
                     NotificationType.COMMENT,
                     user.getName() + " commented: " + text
@@ -234,17 +348,30 @@ class NewsFeedService {
         }
     }
 
-    public void displayPost(int postId) {
-        Post post = allPosts.get(postId);
-        if (post == null) return;
+    public void displayFeed(User user) {
 
-        System.out.println("\nPost: " + post.getContent());
-        System.out.println("Likes: " + post.getLikeCount());
-        System.out.println("Comments: " + post.getCommentCount());
+        List<Post> feed = new ArrayList<>();
+
+        for (User connection : user.getConnections()) {
+            for (Post post : allPosts.values()) {
+                if (post.getAuthor() == connection) {
+                    feed.add(post);
+                }
+            }
+        }
+
+        feed = strategy.sort(feed);
+
+        System.out.println("\nFeed for " + user.getName());
+        for (Post post : feed) {
+            System.out.println(post.getAuthor().getName() + ": " + post.getContent()
+                    + " | Likes: " + post.getLikeCount());
+        }
     }
 }
 
-// ---------------- LINKEDIN APP ----------------
+
+// ================= FACADE =================
 class LinkedinApp {
 
     private static final LinkedinApp instance = new LinkedinApp();
@@ -254,12 +381,14 @@ class LinkedinApp {
 
     private LinkedinApp() {}
 
-    public static LinkedinApp getInstance() {
-        return instance;
+    public static LinkedinApp getInstance() { return instance; }
+
+    public int sendConnectionRequest(User from, User to) {
+        return connectionService.sendRequest(from, to);
     }
 
-    public void connect(User from, User to) {
-        connectionService.connect(from, to);
+    public void acceptConnectionRequest(int id) {
+        connectionService.acceptRequest(id);
     }
 
     public Post createPost(User author, String content) {
@@ -274,27 +403,40 @@ class LinkedinApp {
         newsFeedService.commentOnPost(user, postId, text);
     }
 
-    public void displayPost(int postId) {
-        newsFeedService.displayPost(postId);
+    public void displayFeed(User user) {
+        newsFeedService.displayFeed(user);
+    }
+
+    public void setFeedStrategy(FeedSortingStrategy strategy) {
+        newsFeedService.setStrategy(strategy);
     }
 }
 
-// ---------------- MAIN ----------------
+
+// ================= MAIN =================
 public class Main {
     public static void main(String[] args) {
 
         LinkedinApp app = LinkedinApp.getInstance();
 
-        User gopal = new User.Builder("Gopal").build();
-        User rahul = new User.Builder("Rahul").build();
+        User gopal = new User.Builder("Gopal")
+                .setSummary("Software Engineer")
+                .addSkill("Java")
+                .build();
 
-        app.connect(gopal, rahul);
+        User rahul = new User.Builder("Rahul")
+                .setSummary("Backend Developer")
+                .build();
+
+        int requestId = app.sendConnectionRequest(gopal, rahul);
+        app.acceptConnectionRequest(requestId);
 
         Post post = app.createPost(gopal, "I got a new job!");
 
         app.likePost(rahul, post.getPostId());
-        app.commentOnPost(rahul, post.getPostId(), "Congratulations!");
 
-        app.displayPost(post.getPostId());
+        app.displayFeed(rahul);
+        app.setFeedStrategy(new MostLikedStrategy());
+        app.displayFeed(rahul);
     }
 }
