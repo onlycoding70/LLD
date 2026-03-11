@@ -1,0 +1,355 @@
+/******************************************************************************
+system requirements:
+   - Users are able to create questions, provide answers, and leave comments on both questions and answers.
+   - Users can upvote or downvote questions and answers.
+   - Each question must be linked with one or more tags.
+   - Users can search for questions using keywords, tags, or by browsing specific user profiles.
+   - The platform should award reputation points to users according to their activity and the quality of their contributions.
+   - The system must support concurrent usage while maintaining data integrity.
+
+
+*******************************************************************************/
+import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
+
+/* ================= REPUTATION ================= */
+
+interface ReputationService {
+    void addReputation(User user, int points);
+}
+
+class DefaultReputationService implements ReputationService {
+    @Override
+    public void addReputation(User user, int points) {
+        int newRep = user.getReputation() + points;
+        if (newRep < 0) newRep = 0;
+        user.setReputation(newRep);
+    }
+}
+
+/* ================= USER ================= */
+
+class User {
+    private final int userId;
+    private final String name;
+    private final String email;
+    private int reputation = 0;
+
+    public User(int id, String name, String email) {
+        this.userId = id;
+        this.name = name;
+        this.email = email;
+    }
+
+    public int getUserId() { return userId; }
+    public String getName() { return name; }
+    public String getEmail() { return email; }
+
+    public int getReputation() { return reputation; }
+    public void setReputation(int rep) { this.reputation = rep; }
+}
+
+/* ================= TAG ================= */
+
+class Tag {
+    private final String name;
+
+    public Tag(String name) { this.name = name; }
+
+    public String getName() { return name; }
+}
+
+/* ================= POST ================= */
+
+abstract class Post {
+    protected final int postId;
+    protected final User author;
+    protected final String content;
+
+    protected List<Comment> comments = new ArrayList<>();
+    protected int upVotes = 0;
+    protected int downVotes = 0;
+
+    public Post(int postId, User author, String content) {
+        this.postId = postId;
+        this.author = author;
+        this.content = content;
+    }
+
+    public int getPostId() { return postId; }
+    public User getAuthor() { return author; }
+    public String getContent() { return content; }
+
+    public void addComment(Comment comment) {
+        comments.add(comment);
+    }
+
+    public void upVote() { upVotes++; }
+    public void downVote() { downVotes++; }
+
+    public int getScore() { return upVotes - downVotes; }
+}
+
+/* ================= QUESTION ================= */
+
+class Question extends Post {
+
+    private List<Answer> answers = new ArrayList<>();
+    private Set<Tag> tags = new HashSet<>();
+    private Answer acceptedAnswer = null;
+
+    public Question(int id, User author, String content) {
+        super(id, author, content);
+    }
+
+    public void addAnswer(Answer answer) {
+        answers.add(answer);
+    }
+
+    public void addTag(Tag tag) {
+        tags.add(tag);
+    }
+
+    public List<Answer> getAnswers() { return answers; }
+    public Set<Tag> getTags() { return tags; }
+
+    public void setAcceptedAnswer(Answer answer) {
+        this.acceptedAnswer = answer;
+    }
+}
+
+/* ================= ANSWER ================= */
+
+class Answer extends Post {
+    private final Question question;
+
+    public Answer(int id, User author, String content, Question question) {
+        super(id, author, content);
+        this.question = question;
+    }
+
+    public Question getQuestion() { return question; }
+}
+
+/* ================= COMMENT ================= */
+
+class Comment {
+    private final int commentId;
+    private final User author;
+    private final String content;
+
+    public Comment(int id, User author, String content) {
+        this.commentId = id;
+        this.author = author;
+        this.content = content;
+    }
+}
+
+/* ================= USER MANAGER ================= */
+
+class UserManager {
+    private static final UserManager INSTANCE = new UserManager();
+    private static int userIdSeq = 0;
+
+    private Map<Integer, User> users = new ConcurrentHashMap<>();
+
+    private UserManager() {}
+
+    public static UserManager getInstance() { return INSTANCE; }
+
+    public User createUser(String name, String email) {
+        User user = new User(++userIdSeq, name, email);
+        users.put(user.getUserId(), user);
+        return user;
+    }
+
+    public User getUser(int id) {
+        return users.get(id);
+    }
+}
+
+/* ================= QUESTION MANAGER ================= */
+
+class QuestionManager {
+    private static final QuestionManager INSTANCE = new QuestionManager();
+    private static int questionIdSeq = 0;
+
+    private Map<Integer, Question> questions = new ConcurrentHashMap<>();
+
+    private QuestionManager() {}
+
+    public static QuestionManager getInstance() { return INSTANCE; }
+
+    public Question createQuestion(User author, String content, List<Tag> tags) {
+        Question q = new Question(++questionIdSeq, author, content);
+        for (Tag t : tags) q.addTag(t);
+        questions.put(q.getPostId(), q);
+        return q;
+    }
+
+    public Question getQuestion(int id) {
+        return questions.get(id);
+    }
+
+    public List<Question> searchByKeyword(String keyword) {
+        List<Question> result = new ArrayList<>();
+        for (Question q : questions.values()) {
+            if (q.getContent().contains(keyword)) {
+                result.add(q);
+            }
+        }
+        return result;
+    }
+
+    public List<Question> searchByTag(Tag tag) {
+        List<Question> result = new ArrayList<>();
+        for (Question q : questions.values()) {
+            if (q.getTags().contains(tag)) {
+                result.add(q);
+            }
+        }
+        return result;
+    }
+}
+
+/* ================= ANSWER MANAGER ================= */
+
+class AnswerManager {
+    private static final AnswerManager INSTANCE = new AnswerManager();
+    private static int answerIdSeq = 0;
+
+    private AnswerManager() {}
+
+    public static AnswerManager getInstance() { return INSTANCE; }
+
+    public Answer createAnswer(User author, String content, Question question) {
+        Answer answer = new Answer(++answerIdSeq, author, content, question);
+        question.addAnswer(answer);
+        return answer;
+    }
+}
+
+/* ================= VOTE MANAGER ================= */
+
+class VoteManager {
+    private static final VoteManager INSTANCE = new VoteManager();
+
+    private Map<String, Integer> voteTracker = new ConcurrentHashMap<>();
+    private ReputationService reputationService = new DefaultReputationService();
+
+    private VoteManager() {}
+
+    public static VoteManager getInstance() { return INSTANCE; }
+
+    public void vote(User voter, Post post, int value) {
+
+        String key = voter.getUserId() + "_" + post.getPostId();
+
+        if (voteTracker.containsKey(key)) return;
+
+        voteTracker.put(key, value);
+
+        if (value == 1) {
+            post.upVote();
+            reputationService.addReputation(post.getAuthor(), 10);
+        } else if (value == -1) {
+            post.downVote();
+            reputationService.addReputation(post.getAuthor(), -2);
+        }
+    }
+}
+
+/* ================= FACADE ================= */
+
+class StackOverflow {
+
+    private static final StackOverflow INSTANCE = new StackOverflow();
+
+    private UserManager userManager = UserManager.getInstance();
+    private QuestionManager questionManager = QuestionManager.getInstance();
+    private AnswerManager answerManager = AnswerManager.getInstance();
+    private VoteManager voteManager = VoteManager.getInstance();
+
+    private StackOverflow() {}
+
+    public static StackOverflow getInstance() { return INSTANCE; }
+
+    public User createUser(String name, String email) {
+        return userManager.createUser(name, email);
+    }
+
+    public Question createQuestion(User user, String content, List<Tag> tags) {
+        return questionManager.createQuestion(user, content, tags);
+    }
+
+    public Answer createAnswer(User user, String content, Question question) {
+        return answerManager.createAnswer(user, content, question);
+    }
+
+    public void vote(User voter, Post post, int value) {
+        voteManager.vote(voter, post, value);
+    }
+
+    public List<Question> searchByKeyword(String keyword) {
+        return questionManager.searchByKeyword(keyword);
+    }
+
+    public List<Question> searchByTag(Tag tag) {
+        return questionManager.searchByTag(tag);
+    }
+}
+public class Main {
+    public static void main(String[] args) {
+
+        StackOverflow app = StackOverflow.getInstance();
+
+        // Create Users
+        User gopal = app.createUser("Gopal", "gopal@gmail.com");
+        User rahul = app.createUser("Rahul", "rahul@gmail.com");
+
+        // Create Tag
+        Tag javaTag = new Tag("Java");
+
+        // Create Question
+        Question question = app.createQuestion(
+                gopal,
+                "How does HashMap work internally?",
+                Arrays.asList(javaTag)
+        );
+
+        System.out.println("Question Created: " + question.getContent());
+
+        // Create Answer
+        Answer answer = app.createAnswer(
+                rahul,
+                "HashMap uses hashing and buckets internally.",
+                question
+        );
+
+        System.out.println("Answer Added: " + answer.getContent());
+
+        // Voting
+        app.vote(rahul, question, 1);   
+        app.vote(gopal, answer, 1);
+
+
+        System.out.println("Question Score: " + question.getScore());
+        System.out.println("Answer Score: " + answer.getScore());
+
+        System.out.println("Gopal Reputation: " + gopal.getReputation());
+        System.out.println("Rahul Reputation: " + rahul.getReputation());
+
+        List<Question> keywordResults = app.searchByKeyword("HashMap");
+        System.out.println("\nSearch by Keyword 'HashMap':");
+        for (Question q : keywordResults) {
+            System.out.println("Found: " + q.getContent());
+        }
+
+        // Search by tag
+        List<Question> tagResults = app.searchByTag(javaTag);
+        System.out.println("\nSearch by Tag 'Java':");
+        for (Question q : tagResults) {
+            System.out.println("Found: " + q.getContent());
+        }
+    }
+}
