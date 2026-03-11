@@ -139,11 +139,17 @@ class Booking {
 
 // ---------------- MEETING SCHEDULER ----------------
 class MeetingScheduler {
+    private static Meeting Scheduler instance = new MeetingScheduler();
     private List<Booking> bookings = new ArrayList<>();
     private List<Room> rooms = new ArrayList<>();
+    private MeetingScheduler() {}
 
     public void addRoom(Room room) {
         rooms.add(room);
+    }
+
+    public static MeetingScheduler getInstance() {
+        return instance
     }
 
     public List<Room> getAvailableRooms(Date startTime, Date endTime) {
@@ -202,7 +208,7 @@ class MeetingScheduler {
 public class Main {
     public static void main(String[] args) {
 
-        MeetingScheduler scheduler = new MeetingScheduler();
+        MeetingScheduler scheduler = MeetingScheduler.getInstance();
 
         Room r1 = new Room(1, "Conference Hall");
         scheduler.addRoom(r1);
