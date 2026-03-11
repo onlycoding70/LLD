@@ -1,0 +1,224 @@
+/******************************************************************************
+
+Users can book any meeting room from (start time to end time) if the room is available.
+
+If a room is not available, it should be shown at that moment only.
+
+All the participants of a meeting should receive a notification related to the same.
+
+Store the history of all the meetings scheduled.
+
+Users can see all the available meeting rooms for a particular time slot 
+(can be neglected for implementation but is good to discuss)
+
+*******************************************************************************/
+import java.util.*;
+
+// ---------------- ENUM ----------------
+enum Feature {
+    AC, TV, PROJECTOR;
+}
+
+// ---------------- OBSERVER ----------------
+interface IObserver {
+    void update(Notification notification);
+}
+
+// ---------------- STRATEGY ----------------
+interface NotificationStrategy {
+    void sendNotification(String content, Participant participant);
+}
+
+class EmailNotificationStrategy implements NotificationStrategy {
+    @Override
+    public void sendNotification(String content, Participant participant) {
+        System.out.println("Email sent to " + participant.getName() + ": " + content);
+    }
+}
+
+// ---------------- ROOM ----------------
+class Room {
+    private int roomId;
+    private String name;
+
+    public Room(int roomId, String name) {
+        this.roomId = roomId;
+        this.name = name;
+    }
+
+    public int getRoomId() { return roomId; }
+    public String getName() { return name; }
+}
+
+// ---------------- PARTICIPANT ----------------
+class Participant implements IObserver {
+    private int participantId;
+    private String name;
+    private List<Notification> notifications = new ArrayList<>();
+
+    public Participant(int id, String name) {
+        this.participantId = id;
+        this.name = name;
+    }
+
+    public String getName() { return name; }
+
+    @Override
+    public void update(Notification notification) {
+        notifications.add(notification);
+        notification.sendNotification(this);
+    }
+}
+
+// ---------------- NOTIFICATION ----------------
+class Notification {
+    private NotificationStrategy strategy;
+    private String content;
+
+    public Notification(NotificationStrategy strategy, String content) {
+        this.strategy = strategy;
+        this.content = content;
+    }
+
+    public void sendNotification(Participant participant) {
+        strategy.sendNotification(content, participant);
+    }
+}
+
+// ---------------- BOOKING ----------------
+class Booking {
+    private Room room;
+    private Date startTime;
+    private Date endTime;
+    private List<Participant> participants;
+    private List<Feature> features;
+
+    private Booking(Builder builder) {
+        this.room = builder.room;
+        this.startTime = builder.startTime;
+        this.endTime = builder.endTime;
+        this.participants = builder.participants;
+        this.features = builder.features;
+    }
+
+    public Room getRoom() { return room; }
+    public Date getStartTime() { return startTime; }
+    public Date getEndTime() { return endTime; }
+    public List<Participant> getParticipants() { return participants; }
+    
+
+    // -------- BUILDER --------
+    public static class Builder {
+        private Room room;
+        private Date startTime;
+        private Date endTime;
+        private List<Participant> participants = new ArrayList<>();
+        private List<Feature> features = new ArrayList<>();
+
+        public Builder(Room room, Date startTime, Date endTime) {
+            this.room = room;
+            this.startTime = startTime;
+            this.endTime = endTime;
+        }
+
+        public Builder addParticipant(Participant p) {
+            participants.add(p);
+            return this;
+        }
+
+        public Builder addFeature(Feature feature) {
+            features.add(feature);
+            return this;
+        }
+
+        public Booking build() {
+            return new Booking(this);
+        }
+    }
+}
+
+// ---------------- MEETING SCHEDULER ----------------
+class MeetingScheduler {
+    private List<Booking> bookings = new ArrayList<>();
+    private List<Room> rooms = new ArrayList<>();
+
+    public void addRoom(Room room) {
+        rooms.add(room);
+    }
+
+    public List<Room> getAvailableRooms(Date startTime, Date endTime) {
+        List<Room> available = new ArrayList<>();
+        for (Room room : rooms) {
+            if (isRoomAvailable(room, startTime, endTime)) {
+                available.add(room);
+            }
+        }
+        return available;
+    }
+
+    // Check overlap logic
+    public boolean isRoomAvailable(Room room, Date startTime, Date endTime) {
+        for (Booking booking : bookings) {
+            if (booking.getRoom().getRoomId() == room.getRoomId()) {
+
+                if (!(endTime.before(booking.getStartTime()) ||
+                      startTime.after(booking.getEndTime()))) {
+                    return false;
+                }
+            }
+        }
+        return true;
+    }
+
+    // Book room
+    public boolean bookRoom(Booking booking) {
+
+        if (!isRoomAvailable(booking.getRoom(),
+                booking.getStartTime(),
+                booking.getEndTime())) {
+
+            System.out.println("Room not available!");
+            return false;
+        }
+
+        bookings.add(booking);
+
+        // Notify participants
+        Notification notification = new Notification(
+                new EmailNotificationStrategy(),
+                "Meeting booked in room: " + booking.getRoom().getName()
+        );
+
+        for (Participant p : booking.getParticipants()) {
+            p.update(notification);
+        }
+
+        System.out.println("Room booked successfully!");
+        return true;
+    }
+}
+
+// ---------------- MAIN ----------------
+public class Main {
+    public static void main(String[] args) {
+
+        MeetingScheduler scheduler = new MeetingScheduler();
+
+        Room r1 = new Room(1, "Conference Hall");
+        scheduler.addRoom(r1);
+
+        Participant p1 = new Participant(1, "Alice");
+        Participant p2 = new Participant(2, "Bob");
+
+        Date start = new Date();
+        Date end = new Date(start.getTime() + 3600000);
+
+        Booking booking = new Booking.Builder(r1, start, end)
+                .addParticipant(p1)
+                .addParticipant(p2)
+                .addFeature(Feature.PROJECTOR)
+                .build();
+
+        scheduler.bookRoom(booking);
+    }
+}
