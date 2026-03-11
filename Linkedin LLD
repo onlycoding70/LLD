@@ -79,7 +79,7 @@ class User implements IObserver {
     private final String name;
     private final Profile profile;
     private List<User> connections = new ArrayList<>();
-
+    private List<Notification>notifications = new ArrayList<>();
     private User(int id, String name, Profile profile) {
         this.id = id;
         this.name = name;
@@ -96,6 +96,7 @@ class User implements IObserver {
 
     @Override
     public void update(Notification notification) {
+        notifications.add(notification);
         System.out.println("Notification for " + name + ": " + notification.getMessage());
     }
 
