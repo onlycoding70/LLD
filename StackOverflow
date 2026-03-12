@@ -6,11 +6,9 @@ system requirements:
    - Users can search for questions using keywords, tags, or by browsing specific user profiles.
    - The platform should award reputation points to users according to their activity and the quality of their contributions.
    - The system must support concurrent usage while maintaining data integrity.
-
-
 *******************************************************************************/
+
 import java.util.*;
-import java.util.concurrent.ConcurrentHashMap;
 
 /* ================= REPUTATION ================= */
 
@@ -84,6 +82,10 @@ abstract class Post {
         comments.add(comment);
     }
 
+    public List<Comment> getComments() {
+        return comments;
+    }
+
     public void upVote() { upVotes++; }
     public void downVote() { downVotes++; }
 
@@ -133,15 +135,17 @@ class Answer extends Post {
 
 /* ================= COMMENT ================= */
 
-class Comment {
-    private final int commentId;
-    private final User author;
-    private final String content;
+class Comment extends Post {
 
-    public Comment(int id, User author, String content) {
-        this.commentId = id;
-        this.author = author;
-        this.content = content;
+    private final int parentPostId; // can be Question, Answer, or Comment
+
+    public Comment(int id, User author, String content, int parentPostId) {
+        super(id, author, content);
+        this.parentPostId = parentPostId;
+    }
+
+    public int getParentPostId() {
+        return parentPostId;
     }
 }
 
@@ -151,7 +155,7 @@ class UserManager {
     private static final UserManager INSTANCE = new UserManager();
     private static int userIdSeq = 0;
 
-    private Map<Integer, User> users = new ConcurrentHashMap<>();
+    private Map<Integer, User> users = new HashMap<>();
 
     private UserManager() {}
 
@@ -174,7 +178,7 @@ class QuestionManager {
     private static final QuestionManager INSTANCE = new QuestionManager();
     private static int questionIdSeq = 0;
 
-    private Map<Integer, Question> questions = new ConcurrentHashMap<>();
+    private Map<Integer, Question> questions = new HashMap<>();
 
     private QuestionManager() {}
 
@@ -229,12 +233,39 @@ class AnswerManager {
     }
 }
 
+/* ================= COMMENT MANAGER ================= */
+
+class CommentManager {
+    private static final CommentManager INSTANCE = new CommentManager();
+    private static int commentIdSeq = 0;
+
+    private Map<Integer, Comment> comments = new HashMap<>();
+
+    private CommentManager() {}
+
+    public static CommentManager getInstance() { return INSTANCE; }
+
+    public Comment addComment(User author, String content, Post parentPost) {
+
+        Comment comment = new Comment(++commentIdSeq, author, content, parentPost.getPostId());
+        comments.put(comment.getPostId(), comment);
+
+        parentPost.addComment(comment);
+
+        return comment;
+    }
+
+    public Comment getComment(int id) {
+        return comments.get(id);
+    }
+}
+
 /* ================= VOTE MANAGER ================= */
 
 class VoteManager {
     private static final VoteManager INSTANCE = new VoteManager();
 
-    private Map<String, Integer> voteTracker = new ConcurrentHashMap<>();
+    private Map<String, Integer> voteTracker = new HashMap<>();
     private ReputationService reputationService = new DefaultReputationService();
 
     private VoteManager() {}
@@ -268,6 +299,7 @@ class StackOverflow {
     private UserManager userManager = UserManager.getInstance();
     private QuestionManager questionManager = QuestionManager.getInstance();
     private AnswerManager answerManager = AnswerManager.getInstance();
+    private CommentManager commentManager = CommentManager.getInstance();
     private VoteManager voteManager = VoteManager.getInstance();
 
     private StackOverflow() {}
@@ -286,6 +318,10 @@ class StackOverflow {
         return answerManager.createAnswer(user, content, question);
     }
 
+    public Comment addComment(User user, String content, Post parentPost) {
+        return commentManager.addComment(user, content, parentPost);
+    }
+
     public void vote(User voter, Post post, int value) {
         voteManager.vote(voter, post, value);
     }
@@ -298,58 +334,40 @@ class StackOverflow {
         return questionManager.searchByTag(tag);
     }
 }
+
+/* ================= MAIN ================= */
+
 public class Main {
     public static void main(String[] args) {
 
         StackOverflow app = StackOverflow.getInstance();
 
-        // Create Users
         User gopal = app.createUser("Gopal", "gopal@gmail.com");
         User rahul = app.createUser("Rahul", "rahul@gmail.com");
 
-        // Create Tag
         Tag javaTag = new Tag("Java");
 
-        // Create Question
         Question question = app.createQuestion(
                 gopal,
                 "How does HashMap work internally?",
                 Arrays.asList(javaTag)
         );
 
-        System.out.println("Question Created: " + question.getContent());
-
-        // Create Answer
         Answer answer = app.createAnswer(
                 rahul,
                 "HashMap uses hashing and buckets internally.",
                 question
         );
 
-        System.out.println("Answer Added: " + answer.getContent());
+        Comment c1 = app.addComment(rahul, "Nice question!", question);
+        Comment c2 = app.addComment(gopal, "Thanks!", c1);
 
-        // Voting
-        app.vote(rahul, question, 1);   
+        app.vote(rahul, question, 1);
         app.vote(gopal, answer, 1);
-
 
         System.out.println("Question Score: " + question.getScore());
         System.out.println("Answer Score: " + answer.getScore());
-
         System.out.println("Gopal Reputation: " + gopal.getReputation());
         System.out.println("Rahul Reputation: " + rahul.getReputation());
-
-        List<Question> keywordResults = app.searchByKeyword("HashMap");
-        System.out.println("\nSearch by Keyword 'HashMap':");
-        for (Question q : keywordResults) {
-            System.out.println("Found: " + q.getContent());
-        }
-
-        // Search by tag
-        List<Question> tagResults = app.searchByTag(javaTag);
-        System.out.println("\nSearch by Tag 'Java':");
-        for (Question q : tagResults) {
-            System.out.println("Found: " + q.getContent());
-        }
     }
 }
