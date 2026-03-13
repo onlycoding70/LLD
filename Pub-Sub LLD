@@ -1,0 +1,198 @@
+/******************************************************************************
+
+   publisher-subscriber model:
+1. The Pub-Sub system should allow publishers to publish messages to specific topics.
+2. Subscribers should be able to subscribe to topics of interest and receive messages published to those topics.
+3. The system should support multiple publishers and subscribers.
+4. Messages should be delivered to all subscribers of a topic in real-time.
+5. The system should handle concurrent access and ensure thread safety.
+6. The Pub-Sub system should be scalable and efficient in terms of message delivery.
+
+
+Entities 
+topic
+publisher
+subscriber
+Message
+
+Thread safety to be added later
+*******************************************************************************/
+
+
+import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
+
+// ---------------- MESSAGE ----------------
+class Message {
+    private final int id;
+    private final String content;
+
+    public Message(int id, String content) {
+        this.id = id;
+        this.content = content;
+    }
+
+    public int getId() {
+        return id;
+    }
+
+    public String getContent() {
+        return content;
+    }
+}
+
+// ---------------- SUBSCRIBER ----------------
+interface ISubscriber {
+    void onMessage(String topicName, Message message);
+}
+
+class Subscriber implements ISubscriber {
+    private final int id;
+    private final String name;
+
+    public Subscriber(int id, String name) {
+        this.id = id;
+        this.name = name;
+    }
+
+    @Override
+    public void onMessage(String topicName, Message message) {
+        System.out.println("Subscriber " + name +
+                " received from topic [" + topicName + "]: "
+                + message.getContent());
+    }
+
+    public int getId() {
+        return id;
+    }
+}
+
+// ---------------- TOPIC ----------------
+class Topic {
+    private final int id;
+    private final String name;
+    private final List<ISubscriber> subscribers = new ArrayList<>();
+
+    public Topic(int id, String name) {
+        this.id = id;
+        this.name = name;
+    }
+
+    public void addSubscriber(ISubscriber subscriber) {
+        subscribers.add(subscriber);
+    }
+
+    public void removeSubscriber(ISubscriber subscriber) {
+        subscribers.remove(subscriber);
+    }
+
+    public void publish(Message message) {
+        for (ISubscriber subscriber : subscribers) {
+            subscriber.onMessage(name, message);
+        }
+    }
+
+    public int getId() {
+        return id;
+    }
+
+    public String getName() {
+        return name;
+    }
+}
+
+// ---------------- PUBLISHER ----------------
+class Publisher {
+    private final int id;
+    private final String name;
+
+    public Publisher(int id, String name) {
+        this.id = id;
+        this.name = name;
+    }
+
+    public void publish(int topicId, Message message) {
+        Broker.getInstance().publishMessage(topicId, message);
+    }
+
+    public int getId() {
+        return id;
+    }
+}
+
+// ---------------- BROKER ----------------
+class Broker {
+
+    private static final Broker instance = new Broker(); // eager initialization
+
+    private final Map<Integer, Topic> topics = new ConcurrentHashMap<>();
+    private final Map<Integer, Publisher> publishers = new ConcurrentHashMap<>();
+
+    private Broker() {}
+
+    public static Broker getInstance() {
+        return instance;
+    }
+
+    // -------- Topic Management --------
+    public void createTopic(Topic topic) {
+        topics.put(topic.getId(), topic);
+    }
+
+    public void subscribe(int topicId, ISubscriber subscriber) {
+        Topic topic = topics.get(topicId);
+        if (topic != null) {
+            topic.addSubscriber(subscriber);
+        }
+    }
+
+    public void unsubscribe(int topicId, ISubscriber subscriber) {
+        Topic topic = topics.get(topicId);
+        if (topic != null) {
+            topic.removeSubscriber(subscriber);
+        }
+    }
+
+    // -------- Publisher Management --------
+    public void registerPublisher(Publisher publisher) {
+        publishers.put(publisher.getId(), publisher);
+    }
+
+    // -------- Message Routing --------
+    public void publishMessage(int topicId, Message message) {
+        Topic topic = topics.get(topicId);
+        if (topic != null) {
+            topic.publish(message);
+        } else {
+            System.out.println("Topic not found!");
+        }
+    }
+}
+
+// ---------------- MAIN ----------------
+public class Main {
+    public static void main(String[] args) {
+
+        Broker broker = Broker.getInstance();
+
+        // Create Topic
+        Topic sports = new Topic(1, "Sports");
+        broker.createTopic(sports);
+
+        // Create Publisher
+        Publisher publisher = new Publisher(1, "ESPN");
+        broker.registerPublisher(publisher);
+
+        // Create Subscribers
+        Subscriber sub1 = new Subscriber(1, "Alice");
+        Subscriber sub2 = new Subscriber(2, "Bob");
+
+        // Subscribe to topic
+        broker.subscribe(1, sub1);
+        broker.subscribe(1, sub2);
+
+        // Publish Message
+        Message msg = new Message(1, "India won the match!");
+        publisher.publish(1, msg);
+    }
+}
