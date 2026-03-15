@@ -1,0 +1,399 @@
+
+/******************************************************************************
+
+Design a Locker management system for an ecommerce store. While performing a purchase, 
+the users can opt for their packages to get delivered at a Locker system close to their place. 
+The delivery person will place the package in a locker. 
+An otp will be generated and sent to the user once the package is added to the locker.
+
+As per the user’s convenience, they can visit the locker, enter the otp and get their parcel. 
+Further, if the users want to return the goods, they can visit the locker and place the item. 
+Delivery guy will get an otp which can be used to unlock the locker.
+
+Following are the expectations from the system:
+Person asks the system to allocate a locker for a given package. Assume random allocation for now.
+The system should be extensible and accommodate allocation of locker based on the size of the input package
+The system must generate a code/otp and send it to the user along with the locker details
+The user can enter the otp & locker details to unlock the locker
+Once the package is taken out, the locker can be allocated for any other order
+Users can use the locker for returning an item. OTP/code will be sent to the delivery person in this case
+Operations/Admin can view & vacate all lockers which are in use for more than 3 days
+
+
+
+enitty classes:
+  - Locker
+  - Package
+  - User
+  - Otp
+  - DeliveryAgent
+
+*******************************************************************************/
+import java.util.*;
+
+// ================= ENUMS =================
+
+enum LockerSize { SMALL, MEDIUM, LARGE }
+enum PackageSize { SMALL, MEDIUM, LARGE }
+enum PackageType { DELIVERY, RETURN }
+enum PackageStatus { CREATED, IN_LOCKER, COMPLETED }
+
+// ================= ENTITIES =================
+
+class User {
+    private static int seqId = 0;
+    private final int id;
+    private final String name;
+    private final String contact;
+
+    public User(String name, String contact) {
+        this.id = ++seqId;
+        this.name = name;
+        this.contact = contact;
+    }
+
+    public int getId() { return id; }
+    public String getName() { return name; }
+    public String getContact() { return contact; }
+}
+
+class DeliveryAgent {
+    private static int seqId = 0;
+    private final int id;
+    private final String name;
+    private boolean available = true;
+
+    public DeliveryAgent(String name) {
+        this.id = ++seqId;
+        this.name = name;
+    }
+
+    public int getId() { return id; }
+    public boolean isAvailable() { return available; }
+    public void assign() { available = false; }
+    public void markAvailable() { available = true; }
+}
+
+class Package {
+    private static int seqId = 0;
+    private final int id;
+    private final PackageSize size;
+    private final PackageType type;
+    private PackageStatus status;
+    private final User user;
+
+    public Package(PackageSize size, PackageType type, User user) {
+        this.id = ++seqId;
+        this.size = size;
+        this.type = type;
+        this.user = user;
+        this.status = PackageStatus.CREATED;
+    }
+
+    public int getId() { return id; }
+    public PackageSize getSize() { return size; }
+    public PackageType getType() { return type; }
+    public User getUser() { return user; }
+    public PackageStatus getStatus() { return status; }
+    public void setStatus(PackageStatus status) { this.status = status; }
+}
+
+class Locker {
+    private final int id;
+    private final LockerSize size;
+    private boolean occupied = false;
+    private Package storedPackage;
+    private long occupiedTime;
+
+    public Locker(int id, LockerSize size) {
+        this.id = id;
+        this.size = size;
+    }
+
+    public int getId() { return id; }
+    public LockerSize getSize() { return size; }
+    public boolean isOccupied() { return occupied; }
+    public long getOccupiedTime() { return occupiedTime; }
+
+    public void placePackage(Package pkg) {
+        storedPackage = pkg;
+        occupied = true;
+        occupiedTime = System.currentTimeMillis();
+    }
+
+    public Package removePackage() {
+        Package temp = storedPackage;
+        storedPackage = null;
+        occupied = false;
+        occupiedTime = 0;
+        return temp;
+    }
+}
+
+class Otp {
+    private final String code;
+    private final int lockerId;
+
+    public Otp(String code, int lockerId) {
+        this.code = code;
+        this.lockerId = lockerId;
+    }
+
+    public String getCode() { return code; }
+    public int getLockerId() { return lockerId; }
+}
+
+// ================= STRATEGY =================
+
+interface LockerAllocationStrategy {
+    Locker allocate(Package pkg, List<Locker> lockers);
+}
+
+class SizeBasedAllocationStrategy implements LockerAllocationStrategy {
+
+    public Locker allocate(Package pkg, List<Locker> lockers) {
+        for (Locker locker : lockers) {
+            if (!locker.isOccupied() && canFit(pkg.getSize(), locker.getSize())) {
+                return locker;
+            }
+        }
+        return null;
+    }
+
+    private boolean canFit(PackageSize pkg, LockerSize locker) {
+        if (pkg == PackageSize.SMALL) return true;
+        if (pkg == PackageSize.MEDIUM)
+            return locker == LockerSize.MEDIUM || locker == LockerSize.LARGE;
+        return locker == LockerSize.LARGE;
+    }
+}
+
+// ================= NOTIFICATION =================
+
+interface NotificationStrategy {
+    void send(String receiver, String message);
+}
+
+class SmsNotificationStrategy implements NotificationStrategy {
+    public void send(String receiver, String message) {
+        System.out.println("[SMS] To: " + receiver + " | " + message);
+    }
+}
+
+class NotificationService {
+    private static final NotificationService instance = new NotificationService();
+    private NotificationStrategy strategy = new SmsNotificationStrategy();
+
+    private NotificationService() {}
+    public static NotificationService getInstance() { return instance; }
+
+    public void setStrategy(NotificationStrategy strategy) {
+        this.strategy = strategy;
+    }
+
+    public void send(String receiver, String message) {
+        strategy.send(receiver, message);
+    }
+}
+
+// ================= OTP SERVICE =================
+
+class OtpService {
+    private static final OtpService instance = new OtpService();
+    private Map<String, Otp> otpStore = new HashMap<>();
+
+    private OtpService() {}
+    public static OtpService getInstance() { return instance; }
+
+    public Otp generateOtp(int lockerId) {
+        String code = UUID.randomUUID().toString().substring(0, 6);
+        Otp otp = new Otp(code, lockerId);
+        otpStore.put(code, otp);
+        return otp;
+    }
+
+    public boolean validate(String code, int lockerId) {
+        Otp otp = otpStore.get(code);
+        if (otp == null || otp.getLockerId() != lockerId) return false;
+        otpStore.remove(code);
+        return true;
+    }
+}
+
+// ================= SERVICES =================
+
+class LockerService {
+    private static final LockerService instance = new LockerService();
+    private List<Locker> lockers = new ArrayList<>();
+    private LockerAllocationStrategy strategy = new SizeBasedAllocationStrategy();
+
+    private LockerService() {}
+    public static LockerService getInstance() { return instance; }
+
+    public void addLocker(Locker locker) { lockers.add(locker); }
+
+    public Locker allocateLocker(Package pkg) {
+        return strategy.allocate(pkg, lockers);
+    }
+
+    public Locker getLocker(int id) {
+        for (Locker l : lockers)
+            if (l.getId() == id) return l;
+        return null;
+    }
+
+    public List<Locker> getAllLockers() {
+        return lockers;
+    }
+}
+
+class DeliveryService {
+    private static final DeliveryService instance = new DeliveryService();
+    private List<DeliveryAgent> agents = new ArrayList<>();
+
+    private DeliveryService() {}
+    public static DeliveryService getInstance() { return instance; }
+
+    public void addAgent(DeliveryAgent agent) { agents.add(agent); }
+
+    public DeliveryAgent assignAgent() {
+        for (DeliveryAgent agent : agents) {
+            if (agent.isAvailable()) {
+                agent.assign();
+                return agent;
+            }
+        }
+        return null;
+    }
+}
+
+// ================= FACADE =================
+
+class LockerApp {
+
+    private static final LockerApp instance = new LockerApp();
+
+    private LockerService lockerService = LockerService.getInstance();
+    private OtpService otpService = OtpService.getInstance();
+    private NotificationService notificationService = NotificationService.getInstance();
+    private DeliveryService deliveryService = DeliveryService.getInstance();
+
+    private LockerApp() {}
+    public static LockerApp getInstance() { return instance; }
+
+    // ================= DELIVERY =================
+
+    public void deliverPackage(Package pkg) {
+        Locker locker = lockerService.allocateLocker(pkg);
+        if (locker == null) {
+            System.out.println("No locker available.");
+            return;
+        }
+
+        locker.placePackage(pkg);
+        pkg.setStatus(PackageStatus.IN_LOCKER);
+
+        Otp otp = otpService.generateOtp(locker.getId());
+        notificationService.send(
+                pkg.getUser().getContact(),
+                "Pickup OTP: " + otp.getCode() + " Locker: " + locker.getId()
+        );
+    }
+
+    public void pickupDelivery(String otpCode, int lockerId) {
+        if (!otpService.validate(otpCode, lockerId)) {
+            System.out.println("Invalid OTP.");
+            return;
+        }
+
+        Locker locker = lockerService.getLocker(lockerId);
+        if (locker != null && locker.isOccupied()) {
+            Package pkg = locker.removePackage();
+            pkg.setStatus(PackageStatus.COMPLETED);
+            System.out.println("Delivery picked up from locker " + lockerId);
+        }
+    }
+
+    // ================= RETURN FLOW =================
+
+    public void returnPackage(Package pkg) {
+
+        Locker locker = lockerService.allocateLocker(pkg);
+        if (locker == null) {
+            System.out.println("No locker available for return.");
+            return;
+        }
+
+        Otp userOtp = otpService.generateOtp(locker.getId());
+        notificationService.send(
+                pkg.getUser().getContact(),
+                "Return Drop OTP: " + userOtp.getCode() + 
+                " Locker: " + locker.getId()
+        );
+        //dummy validation
+        if (!otpService.validate(userOtp.getCode(), locker.getId())) {
+            System.out.println("User failed OTP.");
+            return;
+        }
+
+        locker.placePackage(pkg);
+        pkg.setStatus(PackageStatus.IN_LOCKER);
+
+        DeliveryAgent agent = deliveryService.assignAgent();
+        if (agent == null) {
+            System.out.println("No agent available.");
+            return;
+        }
+
+        Otp agentOtp = otpService.generateOtp(locker.getId());
+        notificationService.send(
+                "Agent-" + agent.getId(),
+                "Pickup Return OTP: " + agentOtp.getCode() +
+                " Locker: " + locker.getId()
+        );
+
+        System.out.println("Return placed in Locker " + locker.getId());
+    }
+
+    // ================= ADMIN =================
+
+    public void vacateLockersOlderThan3Days() {
+        long now = System.currentTimeMillis();
+        long threeDays = 3L * 24 * 60 * 60 * 1000;
+
+        for (Locker locker : lockerService.getAllLockers()) {
+            if (locker.isOccupied() &&
+                now - locker.getOccupiedTime() > threeDays) {
+
+                locker.removePackage();
+                System.out.println("Admin vacated Locker " + locker.getId());
+            }
+        }
+    }
+
+    public void addLocker(Locker locker) { lockerService.addLocker(locker); }
+    public void addAgent(DeliveryAgent agent) { deliveryService.addAgent(agent); }
+}
+
+// ================= MAIN =================
+
+public class Main {
+    public static void main(String[] args) {
+
+        LockerApp app = LockerApp.getInstance();
+
+        app.addLocker(new Locker(1, LockerSize.SMALL));
+        app.addLocker(new Locker(2, LockerSize.MEDIUM));
+        app.addAgent(new DeliveryAgent("Agent A"));
+
+        User gopal = new User("Gopal", "9999999999");
+
+        // DELIVERY FLOW
+        Package delivery = new Package(PackageSize.SMALL, PackageType.DELIVERY, gopal);
+        app.deliverPackage(delivery);
+
+        // RETURN FLOW
+        Package ret = new Package(PackageSize.SMALL, PackageType.RETURN, gopal);
+        app.returnPackage(ret);
+    }
+}
