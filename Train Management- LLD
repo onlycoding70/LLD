@@ -1,0 +1,254 @@
+/******************************************************************************
+Design a system that manages the assignment of trains to platforms in a railway station and supports time based queries.
+
+Functional requirements
+
+The station has a configurable number of platforms.
+Each train arrives at a specific start time and departs at a specific end time.
+When a train arrives, the system must assign it an available platform for the entire duration of its stay.
+If all platforms are occupied, the train must wait until a platform becomes free.
+Provide a method to query which train is occupying a given platform at any timestamp.
+Provide a method to query which platform a given train occupies at any timestamp.
+Non functional expectations
+
+The design should be implementable in Java and include runnable code.
+Explain the design patterns (e.g., Factory, Strategy, Observer) that are applied.
+Walk through the main steps of the implementation, highlighting how objects interact.
+
+Entities:-
+station
+train
+trainSchedule
+
+
+*******************************************************************************/
+import java.time.LocalTime;
+import java.util.*;
+
+// ---------------- TRAIN ----------------
+
+class Train {
+
+	private String name;
+	private LocalTime arrival;
+	private LocalTime departure;
+
+	public Train(String name, LocalTime arrival, LocalTime departure) {
+		this.name = name;
+		this.arrival = arrival;
+		this.departure = departure;
+	}
+
+	public String getName() {
+		return name;
+	}
+
+	public LocalTime getArrival() {
+		return arrival;
+	}
+
+	public LocalTime getDeparture() {
+		return departure;
+	}
+
+	public void setArrival(LocalTime arrival) {
+		this.arrival = arrival;
+	}
+
+	public void setDeparture(LocalTime departure) {
+		this.departure = departure;
+	}
+}
+
+// ---------------- PLATFORM ----------------
+
+class Platform {
+
+	private int id;
+	private String name;
+	public Platform(int id, String name) {
+		this.id = id;
+		this.name = name;
+	}
+
+	public int getId() {
+		return id;
+	}
+	public String getName(){
+	    return name;
+	}
+}
+
+// ---------------- ASSIGNMENT ----------------
+
+class PlatformAssignment {
+
+	private Train train;
+	private Platform platform;
+	private LocalTime start;
+	private LocalTime end;
+
+	public PlatformAssignment(Train train, Platform platform,
+	                          LocalTime start, LocalTime end) {
+		this.train = train;
+		this.platform = platform;
+		this.start = start;
+		this.end = end;
+	}
+
+	public Train getTrain() {
+		return train;
+	}
+
+	public Platform getPlatform() {
+		return platform;
+	}
+
+	public LocalTime getStart() {
+		return start;
+	}
+
+	public LocalTime getEnd() {
+		return end;
+	}
+
+
+	public boolean overlaps(LocalTime arrival, LocalTime departure) {
+		return arrival.isBefore(end) && departure.isAfter(start);
+	}
+
+	public boolean contains(LocalTime time) {
+		return !time.isBefore(start) && time.isBefore(end);
+	}
+}
+
+// ---------------- STRATEGY ----------------
+
+interface PlatformStrategy {
+	Platform findPlatform(List<Platform> platforms,
+	                      List<PlatformAssignment> assignments,
+	                      Train train);
+}
+
+
+class FirstFreePlatformStrategy implements PlatformStrategy {
+
+	public Platform findPlatform(List<Platform> platforms,
+	                             List<PlatformAssignment> assignments,
+	                             Train train) {
+
+		for (Platform p : platforms) {
+
+			boolean occupied = false;
+			for (PlatformAssignment a : assignments) {
+			    
+				if (a.getPlatform().getId() == p.getId()
+				        && a.overlaps(train.getArrival(), train.getDeparture())) {
+
+					occupied = true;
+					break;
+				}
+			}
+
+			if (!occupied)
+				return p;
+		}
+
+		return null;
+	}
+}
+
+// ---------------- STATION (Singleton) ----------------
+
+class RailwayStation {
+
+	private static final RailwayStation instance = new RailwayStation();
+
+	private List<Platform> platforms = new ArrayList<>();
+	private List<PlatformAssignment> assignments = new ArrayList<>();
+	private PlatformStrategy strategy = new FirstFreePlatformStrategy();
+
+	private RailwayStation() {}
+
+	public static RailwayStation getInstance() {
+		return instance;
+	}
+
+	public void addPlatform(Platform p) {
+		platforms.add(p);
+	}
+
+	public void addTrain(Train train) {
+		Platform p = strategy.findPlatform(platforms, assignments, train);
+		if (p == null)
+		{
+			System.out.println("Train " + train.getName() + " waiting for platform");
+			return;
+		}
+		PlatformAssignment a = new PlatformAssignment(train, p, train.getArrival(), train.getDeparture());
+		assignments.add(a);
+		System.out.println("Train " + train.getName() + " assigned to platform " + p.getId());
+	}
+
+	public Train getTrainAtTime(int platformId, LocalTime time) {
+
+		for (PlatformAssignment a : assignments) {
+
+			if (a.getPlatform().getId() == platformId
+			        && a.contains(time)) {
+
+				return a.getTrain();
+			}
+		}
+
+		return null;
+	}
+
+	public Platform getPlatformOfTrain(String trainName, LocalTime time) {
+
+		for (PlatformAssignment a : assignments) {
+
+			if (a.getTrain().getName().equals(trainName)
+			        && a.contains(time)) {
+
+				return a.getPlatform();
+			}
+		}
+
+		return null;
+	}
+}
+
+// ---------------- MAIN ----------------
+
+public class Main {
+
+	public static void main(String[] args) {
+
+		RailwayStation station = RailwayStation.getInstance();
+
+		station.addPlatform(new Platform(1, "Shahadra"));
+		station.addPlatform(new Platform(2, "NSP"));
+
+		Train t1 = new Train("T1",
+		                     LocalTime.of(10, 0),
+		                     LocalTime.of(10, 30));
+
+		Train t2 = new Train("T2",
+		                     LocalTime.of(10, 10),
+		                     LocalTime.of(10, 40));
+
+		Train t3 = new Train("T3",
+		                     LocalTime.of(10, 5),
+		                     LocalTime.of(10, 20));
+
+		station.addTrain(t1);
+		station.addTrain(t2);
+		station.addTrain(t3);
+
+		Train result = station.getTrainAtTime(1, LocalTime.of(10, 15));
+
+		if (result != null)
+			System.out.println("Platform 1 at 10:15  " + result.getName());
+	}
+}
