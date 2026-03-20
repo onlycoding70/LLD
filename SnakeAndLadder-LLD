@@ -1,0 +1,352 @@
+// problem statement:
+// The game should be played on a board with numbered cells, typically with 100 cells.
+// The board should have a predefined set of snakes and ladders, connecting certain cells.
+// The game should support multiple players, each represented by a unique game piece.
+// Players should take turns rolling a dice to determine the number of cells to move forward.
+// If a player lands on a cell with the head of a snake, they should slide down to the cell with the tail of the snake.
+// If a player lands on a cell with the base of a ladder, they should climb up to the cell at the top of the ladder.
+// The game should continue until one of the players reaches the final cell on the board.
+// The game should handle multiple game sessions concurrently, allowing different groups of players to play independently.
+
+
+// entity:
+// - cell
+// - Board
+// - player
+// = Match
+// - dice //seperate class if u later want to modify the probability of various no in dice
+// - MatchStatus
+
+
+
+import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
+
+// ---------------- ENUMS ----------------
+
+enum BoardEntity {
+    SNAKE,
+    LADDER
+}
+
+enum MatchStatus {
+    NOT_STARTED,
+    IN_PROGRESS,
+    FINISHED
+}
+
+// ---------------- USER ----------------
+
+class User {
+
+    private String name;
+
+    public User(String name) {
+        this.name = name;
+    }
+
+    public String getName() {
+        return name;
+    }
+}
+
+// ---------------- PLAYER ----------------
+
+class Player {
+
+    private User user;
+    private int position;
+
+    public Player(User user) {
+        this.user = user;
+        this.position = 0;
+    }
+
+    public User getUser() {
+        return user;
+    }
+
+    public int getPosition() {
+        return position;
+    }
+
+    public void setPosition(int position) {
+        this.position = position;
+    }
+}
+
+// ---------------- DICE ----------------
+
+class Dice {
+
+    private final int min = 1;
+    private final int max = 6;
+    private final Random random;
+
+    public Dice() {
+        random = new Random();
+    }
+
+    public int roll() {
+        return random.nextInt(max - min + 1) + min;
+    }
+}
+
+// ---------------- CELL ----------------
+
+class Cell {
+
+    private BoardEntity entity;
+    private String icon;
+
+    public Cell() {}
+
+    public Cell(BoardEntity entity, String icon) {
+        this.entity = entity;
+        this.icon = icon;
+    }
+
+    public void setEntity(BoardEntity entity, String icon) {
+        this.entity = entity;
+        this.icon = icon;
+    }
+
+    public boolean isEntityPresent() {
+        return entity != null;
+    }
+
+    public BoardEntity getEntity() {
+        return entity;
+    }
+}
+
+// ---------------- RULES ----------------
+
+interface MatchRules {
+
+    void setUpBoard(Board board);
+
+    boolean checkWinner(int pos, int boardSize);
+}
+
+// ---------------- STANDARD RULES ----------------
+
+class StandardMatchRules implements MatchRules {
+
+    public void setUpBoard(Board board) {
+
+        Map<Integer, Integer> snakesAndLadders = board.getSnakeAndLadders();
+        List<Cell> cells = board.getCells();
+
+        // Ladders
+        snakesAndLadders.put(3, 22);
+        snakesAndLadders.put(5, 8);
+        snakesAndLadders.put(11, 26);
+        snakesAndLadders.put(20, 29);
+
+        // Snakes
+        snakesAndLadders.put(34, 12);
+        snakesAndLadders.put(47, 9);
+        snakesAndLadders.put(52, 42);
+        snakesAndLadders.put(62, 18);
+
+        // Mark ladder cells
+        cells.get(3).setEntity(BoardEntity.LADDER, "L");
+        cells.get(5).setEntity(BoardEntity.LADDER, "L");
+        cells.get(11).setEntity(BoardEntity.LADDER, "L");
+        cells.get(20).setEntity(BoardEntity.LADDER, "L");
+
+        // Mark snake cells
+        cells.get(34).setEntity(BoardEntity.SNAKE, "S");
+        cells.get(47).setEntity(BoardEntity.SNAKE, "S");
+        cells.get(52).setEntity(BoardEntity.SNAKE, "S");
+        cells.get(62).setEntity(BoardEntity.SNAKE, "S");
+    }
+
+    public boolean checkWinner(int pos, int boardSize) {
+        return pos == boardSize;
+    }
+}
+
+// ---------------- BOARD ----------------
+
+class Board {
+
+    private int size;
+    private List<Cell> cells;
+    private Map<Integer, Integer> snakesAndLadders = new HashMap<>();
+
+    public Board(int size) {
+
+        this.size = size;
+        cells = new ArrayList<>();
+
+        for (int i = 0; i <= size; i++) {
+            cells.add(new Cell());
+        }
+    }
+
+    public Map<Integer, Integer> getSnakeAndLadders() {
+        return snakesAndLadders;
+    }
+
+    public List<Cell> getCells() {
+        return cells;
+    }
+
+    public int getSize() {
+        return size;
+    }
+
+    public int placePiece(int position) {
+
+        if (snakesAndLadders.containsKey(position)) {
+            return snakesAndLadders.get(position);
+        }
+
+        return position;
+    }
+
+    public void displayBoard() {
+        System.out.println("Board size: " + size);
+        System.out.println("Entities: " + snakesAndLadders);
+    }
+}
+
+// ---------------- MATCH ----------------
+
+class Match {
+
+    private String matchId;
+    private MatchStatus status;
+
+    private Board board;
+    private Queue<Player> queue;
+    private MatchRules rules;
+    private Dice dice;
+
+    public Match(String matchId, Board board, List<User> users, MatchRules rules) {
+
+        this.matchId = matchId;
+        this.board = board;
+        this.rules = rules;
+        this.dice = new Dice();
+        this.status = MatchStatus.NOT_STARTED;
+
+        this.queue = new LinkedList<>();
+        for (User user : users) {
+            queue.offer(new Player(user));
+        }
+    }
+
+    public String getMatchId() {
+        return matchId;
+    }
+
+    public MatchStatus getStatus() {
+        return status;
+    }
+
+    public void startGame() {
+
+        status = MatchStatus.IN_PROGRESS;
+        rules.setUpBoard(board);
+        System.out.println("\nGame Started for Match: " + matchId);
+
+        while (status == MatchStatus.IN_PROGRESS) {
+
+            Player current = queue.poll();
+            int diceValue = dice.roll();
+
+            System.out.println(current.getUser().getName() + " rolled " + diceValue);
+
+            int newPosition = current.getPosition() + diceValue;
+
+            if (newPosition > board.getSize()) {
+                newPosition = current.getPosition();
+            }
+
+            newPosition = board.placePiece(newPosition);
+
+            current.setPosition(newPosition);
+
+            System.out.println(current.getUser().getName() + " moved to " + newPosition);
+
+            if (rules.checkWinner(newPosition, board.getSize())) {
+                status = MatchStatus.FINISHED;
+                System.out.println("Winner is: " + current.getUser().getName());
+                break;
+            }
+
+            queue.offer(current);
+        }
+    }
+}
+
+// ---------------- GAME MANAGER (SINGLETON) ----------------
+
+class SAL {
+
+    private static final SAL INSTANCE = new SAL();
+
+    private Map<String, Match> matches = new ConcurrentHashMap<>();
+    private static int seqId = 1;
+
+    private SAL() {}
+
+    public static SAL getInstance() {
+        return INSTANCE;
+    }
+
+    public String createMatch(List<User> users, int boardSize) {
+
+        String matchId = "MATCH-" + seqId++;
+        Board board = new Board(boardSize);
+        Match match = new Match(matchId, board, users, new StandardMatchRules());
+
+        matches.put(matchId, match);
+        System.out.println("Created Match: " + matchId);
+
+        return matchId;
+    }
+
+    public void startMatch(String matchId) {
+
+        Match match = matches.get(matchId);
+
+        if (match == null) {
+            System.out.println("Match not found");
+            return;
+        }
+
+        match.startGame();
+    }
+
+    public Match getMatch(String matchId) {
+        return matches.get(matchId);
+    }
+
+    public Map<String, Match> getAllMatches() {
+        return matches;
+    }
+}
+
+// ---------------- MAIN ----------------
+
+public class Main {
+
+    public static void main(String[] args) {
+
+        List<User> players = new ArrayList<>();
+
+        players.add(new User("Alice"));
+        players.add(new User("Bob"));
+        players.add(new User("Charlie"));
+
+        SAL gameManager = SAL.getInstance();
+
+        String matchId = gameManager.createMatch(players, 100);
+
+        gameManager.startMatch(matchId);
+    }
+}
