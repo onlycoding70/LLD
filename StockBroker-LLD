@@ -1,0 +1,392 @@
+/******************************************************************************
+ stock broker low level design:
+
+The online stock brokerage system should allow users to create and manage their trading accounts.
+Users should be able to buy and sell stocks, as well as view their portfolio and transaction history.
+The system should provide real-time stock quotes and market data to users.
+The system should handle order placement, execution, and settlement processes.
+The system should enforce various business rules and validations, such as checking account balances and stock availability.
+The system should handle concurrent user requests and ensure data consistency and integrity.
+The system should be scalable and able to handle a large number of users and transactions.
+The system should be secure and protect sensitive user information.
+
+
+*******************************************************************************/
+import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
+
+
+enum TransactionType {
+    BUY,
+    SELL
+}
+
+enum TransactionState {
+    SUCCESS,
+    FAILED
+}
+
+class Stock {
+    private static int idCounter = 0;
+
+    private int stockId;
+    private String name;
+    private double price;
+    private int availableQuantity;
+
+    public Stock(String name, double price, int qty) {
+        this.stockId = ++idCounter;
+        this.name = name;
+        this.price = price;
+        this.availableQuantity = qty;
+    }
+
+    public int getStockId() { return stockId; }
+
+    public String getName() { return name; }
+
+    public synchronized double getPrice() { return price; }
+
+    public synchronized void updatePrice(double newPrice) {
+        this.price = newPrice;
+    }
+
+    public synchronized int getAvailableQuantity() {
+        return availableQuantity;
+    }
+
+    public synchronized boolean reserveStock(int qty) {
+        if (availableQuantity < qty) return false;
+        availableQuantity -= qty;
+        return true;
+    }
+
+    public synchronized void addStock(int qty) {
+        availableQuantity += qty;
+    }
+}
+
+class Transaction {
+
+    private static int idCounter = 0;
+
+    private int transactionId;
+    private int userId;
+    private int stockId;
+    private int quantity;
+    private double totalPrice;
+    private TransactionType type;
+    private TransactionState state;
+
+    public Transaction(int userId, int stockId, int quantity, double totalPrice, TransactionType type, TransactionState state) {
+        this.transactionId = ++idCounter;
+        this.userId = userId;
+        this.stockId = stockId;
+        this.quantity = quantity;
+        this.totalPrice = totalPrice;
+        this.type = type;
+        this.state = state;
+    }
+
+    public int getTransactionId() { return transactionId; }
+
+    public int getUserId() { return userId; }
+
+    public int getStockId() { return stockId; }
+
+    public int getQuantity() { return quantity; }
+
+    public double getTotalPrice() { return totalPrice; }
+
+    public TransactionType getType() { return type; }
+
+}
+
+class User {
+
+    private static int idCounter = 0;
+
+    private int userId;
+    private String name;
+    private double balance;
+
+    private Map<Integer, Integer> portfolio = new ConcurrentHashMap<>();
+
+    public User(String name, double balance) {
+        this.userId = ++idCounter;
+        this.name = name;
+        this.balance = balance;
+    }
+
+    public int getUserId() { return userId; }
+
+    public String getName() { return name; }
+
+    public synchronized boolean deductBalance(double amount) {
+        if (balance < amount) return false;
+        balance -= amount;
+        return true;
+    }
+
+    public synchronized void addBalance(double amount) {
+        balance += amount;
+    }
+
+    public double getBalance() { return balance; }
+
+    public void addStockToPortfolio(int stockId, int qty) {
+        portfolio.put(stockId, portfolio.getOrDefault(stockId, 0) + qty);
+    }
+
+    public Map<Integer, Integer> getPortfolio() {
+        return portfolio;
+    }
+}
+
+/************* Strategy Pattern *************/
+
+interface TransactionDisplayStrategy {
+    void displayTransaction(List<Transaction> transactions);
+}
+
+class SequentialStrategy implements TransactionDisplayStrategy {
+
+    @Override
+    public void displayTransaction(List<Transaction> transactions) {
+        for (Transaction t : transactions) {
+            System.out.println(t);
+        }
+    }
+}
+
+/************* User Service *************/
+
+class UserService {
+
+    private static final UserService INSTANCE = new UserService();
+
+    private Map<Integer, User> users = new ConcurrentHashMap<>();
+
+    private TransactionDisplayStrategy strategy = new SequentialStrategy();
+
+    private UserService() {}
+
+    public static UserService getInstance() {
+        return INSTANCE;
+    }
+
+    public void addAccount(User user) {
+        users.put(user.getUserId(), user);
+    }
+
+    public User getUser(int userId) {
+        return users.get(userId);
+    }
+
+    public void showTransactionHistory(List<Transaction> transactions) {
+        strategy.displayTransaction(transactions);
+    }
+
+    public void displayUserPortfolio(int userId) {
+
+        User user = users.get(userId);
+
+        if (user == null) {
+            System.out.println("User not found");
+            return;
+        }
+
+        System.out.println("Portfolio for user " + user.getName());
+
+        for (Map.Entry<Integer, Integer> entry : user.getPortfolio().entrySet()) {
+            System.out.println("StockId: " + entry.getKey() + " Qty: " + entry.getValue());
+        }
+    }
+
+    public void setDisplayStrategy(TransactionDisplayStrategy strategy) {
+        this.strategy = strategy;
+    }
+}
+
+/************* Stock Service *************/
+
+class StockService {
+
+    private static final StockService INSTANCE = new StockService();
+
+    private Map<Integer, Stock> stocks = new ConcurrentHashMap<>();
+
+    private StockService() {}
+
+    public static StockService getInstance() {
+        return INSTANCE;
+    }
+
+    public void addStock(Stock stock) {
+        stocks.put(stock.getStockId(), stock);
+    }
+
+    public Stock getStock(int stockId) {
+        return stocks.get(stockId);
+    }
+
+    public void addStocks(int stockId, int refillAmount) {
+
+        Stock stock = stocks.get(stockId);
+
+        if (stock != null) {
+            stock.addStock(refillAmount);
+        }
+    }
+
+    public void removeStock(int stockId) {
+        stocks.remove(stockId);
+    }
+
+    public boolean validateAndReserve(int stockId, int quantity) {
+
+        Stock stock = stocks.get(stockId);
+        if (stock == null) return false;
+
+        return stock.reserveStock(quantity);
+    }
+
+    public void updateStockPrice(int stockId, double price) {
+
+        Stock stock = stocks.get(stockId);
+
+        if (stock != null) {
+            stock.updatePrice(price);
+        }
+    }
+}
+
+/************* Stock Broker *************/
+
+class StockBroker {
+
+    private static final StockBroker INSTANCE = new StockBroker();
+
+    private UserService userService = UserService.getInstance();
+    private StockService stockService = StockService.getInstance();
+
+    private Map<Integer, List<Transaction>> transactionHistory = new ConcurrentHashMap<>();
+
+    private StockBroker() {}
+
+    public static StockBroker getInstance() {
+        return INSTANCE;
+    }
+
+    public boolean buyStock(int userId, int stockId, int quantity) {
+
+        User user = userService.getUser(userId);
+        Stock stock = stockService.getStock(stockId);
+
+        if (user == null || stock == null) return false;
+
+        double totalCost = stock.getPrice() * quantity;
+
+        if (!stockService.validateAndReserve(stockId, quantity)) {
+            System.out.println("Insufficient stock inventory!");
+            return false;
+        }
+
+        if (!user.deductBalance(totalCost)) {
+            System.out.println("Insufficient balance!");
+            stock.addStock(quantity);
+            return false;
+        }
+
+        user.addStockToPortfolio(stockId, quantity);
+
+        Transaction txn = new Transaction(
+                userId,
+                stockId,
+                quantity,
+                totalCost,
+                TransactionType.BUY,
+                TransactionState.SUCCESS
+        );
+
+        addTransaction(userId, txn);
+
+        System.out.println("Purchase Successful!");
+
+        return true;
+    }
+    public boolean sellStock(int userId, int stockId, int quantity) {
+
+    User user = userService.getUser(userId);
+    Stock stock = stockService.getStock(stockId);
+
+    if (user == null || stock == null) return false;
+
+    Map<Integer, Integer> portfolio = user.getPortfolio();
+
+    int ownedQty = portfolio.getOrDefault(stockId, 0);
+
+    if (ownedQty < quantity) {
+        System.out.println("Insufficient stock in portfolio!");
+        return false;
+    }
+
+    double totalAmount = stock.getPrice() * quantity;
+
+   
+    portfolio.put(stockId, ownedQty - quantity);
+    user.addBalance(totalAmount);
+
+    stock.addStock(quantity);
+
+    Transaction txn = new Transaction(
+            userId,
+            stockId,
+            quantity,
+            totalAmount,
+            TransactionType.SELL,
+            TransactionState.SUCCESS
+    );
+
+    addTransaction(userId, txn);
+    System.out.println("Sell Successful!");
+    return true;
+}
+
+    public void addTransaction(int userId, Transaction transaction) {
+
+        transactionHistory
+                .computeIfAbsent(userId, k -> new ArrayList<>())
+                .add(transaction);
+    }
+
+    public List<Transaction> getUserTransactions(int userId) {
+        return transactionHistory.getOrDefault(userId, new ArrayList<>());
+    }
+}
+
+/************* Main *************/
+
+public class Main {
+
+    public static void main(String[] args) {
+
+        UserService userService = UserService.getInstance();
+        StockService stockService = StockService.getInstance();
+        StockBroker broker = StockBroker.getInstance();
+
+        User user1 = new User("Alice", 10000);
+        userService.addAccount(user1);
+
+        Stock apple = new Stock("Apple", 150, 100);
+        stockService.addStock(apple);
+
+        broker.buyStock(user1.getUserId(), apple.getStockId(), 10);
+
+        userService.displayUserPortfolio(user1.getUserId());
+
+        List<Transaction> history = broker.getUserTransactions(user1.getUserId());
+
+        userService.showTransactionHistory(history);
+    }
+}
