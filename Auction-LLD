@@ -1,0 +1,384 @@
+/******************************************************************************
+
+                            Online Java Compiler.
+                Code, Compile, Run and Debug java program online.
+Write your code in this editor and press "Run" button to execute it.
+
+*******************************************************************************/
+
+/******************************************************************************
+The online auction system should allow users to register and log in to their accounts.
+Users should be able to create new auction listings with details such as item name, 
+description, starting price, and auction duration.
+Users should be able to browse and search for auction listings based on various criteria (e.g., item name, category, price range).
+Users should be able to place bids on active auction listings.
+The system should automatically update the current highest bid and notify the bidders accordingly.
+The auction should end when the specified duration is reached, and the highest bidder should be declared the winner.
+The system should handle concurrent access to auction listings and ensure data consistency.
+The system should be extensible to accommodate future enhancements and new features.
+
+*******************************************************************************/
+import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
+
+enum AuctionStatus {
+    PENDING,
+    ACTIVE,
+    INACTIVE
+}
+
+enum BidStatus {
+    PENDING,
+    ACTIVE,
+    INACTIVE
+}
+
+/* ===================== OBSERVER ===================== */
+
+interface IObserver {
+    void update(String message);
+}
+
+interface Subject {
+    void addObserver(IObserver observer);
+    void removeObserver(IObserver observer);
+}
+
+/* ===================== USER ===================== */
+
+class User implements IObserver {
+
+    int userId;
+    String name;
+
+    public User(int userId, String name) {
+        this.userId = userId;
+        this.name = name;
+    }
+
+    @Override
+    public void update(String message) {
+        System.out.println("Notification for " + name + ": " + message);
+    }
+}
+
+/* ===================== BID ===================== */
+
+class Bid {
+
+    int itemId;
+    double amount;
+    User bidder;
+
+    public Bid(int itemId, double amount, User bidder) {
+        this.itemId = itemId;
+        this.amount = amount;
+        this.bidder = bidder;
+    }
+}
+
+/* ===================== ITEM ===================== */
+
+class Item {
+
+    int itemId;
+    String name;
+    String description;
+    String category;
+    double startingBid;
+
+    List<Bid> bids = new ArrayList<>();
+    BidStatus status = BidStatus.ACTIVE;
+    Bid winnerBid;
+
+    public Item(int itemId, String name, String description,
+                String category, double startingBid) {
+
+        this.itemId = itemId;
+        this.name = name;
+        this.description = description;
+        this.category = category;
+        this.startingBid = startingBid;
+    }
+
+    public synchronized void addBid(Bid bid) {
+        bids.add(bid);
+    }
+
+    public synchronized Bid getHighestBid() {
+
+        Bid highest = null;
+
+        for (Bid bid : bids) {
+            if (highest == null || bid.amount > highest.amount) {
+                highest = bid;
+            }
+        }
+
+        return highest;
+    }
+
+    public Bid endBid() {
+
+        status = BidStatus.INACTIVE;
+        winnerBid = getHighestBid();
+        return winnerBid;
+    }
+}
+
+/* ===================== AUCTION ===================== */
+
+class Auction implements Subject {
+
+    int auctionId;
+
+    Map<Integer, Item> items = new ConcurrentHashMap<>();
+
+    AuctionStatus status = AuctionStatus.ACTIVE;
+
+    List<IObserver> observers = new ArrayList<>();
+
+    public Auction(int auctionId) {
+        this.auctionId = auctionId;
+    }
+
+    public void addItem(Item item) {
+        items.put(item.itemId, item);
+    }
+
+    /* ================= BID PLACEMENT ================= */
+
+    public synchronized void placeBid(int itemId, Bid bid) {
+
+        Item item = items.get(itemId);
+
+        if (item == null || item.status == BidStatus.INACTIVE) {
+            System.out.println("Auction closed for item.");
+            return;
+        }
+
+        Bid highest = item.getHighestBid();
+
+        double minBid = (highest == null) ? item.startingBid : highest.amount;
+
+        if (bid.amount <= minBid) {
+            System.out.println("Bid rejected. Bid must be greater than " + minBid);
+            return;
+        }
+
+        item.addBid(bid);
+
+        notifyRelevantObservers(
+                item,
+                "New bid on " + item.name +
+                " by " + bid.bidder.name +
+                " amount: " + bid.amount
+        );
+    }
+
+    /* ================= CLOSE AUCTION ================= */
+
+    public void closeAuction(int itemId) {
+
+        Item item = items.get(itemId);
+
+        if (item == null) return;
+
+        Bid winner = item.endBid();
+
+        if (winner != null) {
+
+            notifyRelevantObservers(
+                    item,
+                    "Auction ended for item " + item.name +
+                            ". Winner is " + winner.bidder.name +
+                            " with bid " + winner.amount
+            );
+
+        } else {
+
+            notifyRelevantObservers(
+                    item,
+                    "Auction ended for item " + item.name +
+                            " with no bids."
+            );
+        }
+    }
+
+    /* ================= SMART NOTIFICATION ================= */
+
+    private void notifyRelevantObservers(Item item, String message) {
+
+        Set<User> bidders = new HashSet<>();
+
+        for (Bid bid : item.bids) {
+            bidders.add(bid.bidder);
+        }
+
+        for (User user : bidders) {
+            user.update(message);
+        }
+    }
+
+    @Override
+    public void addObserver(IObserver observer) {
+        observers.add(observer);
+    }
+
+    @Override
+    public void removeObserver(IObserver observer) {
+        observers.remove(observer);
+    }
+}
+
+/* ===================== AUCTION SYSTEM ===================== */
+
+class AuctionSystem {
+
+    Map<Integer, Auction> auctions = new HashMap<>();
+
+    public void addAuction(Auction auction) {
+        auctions.put(auction.auctionId, auction);
+    }
+
+    public Auction getAuction(int auctionId) {
+        return auctions.get(auctionId);
+    }
+
+    public void addItem(int auctionId, Item item) {
+
+        Auction auction = auctions.get(auctionId);
+
+        if (auction != null) {
+            auction.addItem(item);
+        }
+    }
+
+    public void closeBid(int auctionId, int itemId) {
+
+        Auction auction = auctions.get(auctionId);
+
+        if (auction != null) {
+            auction.closeAuction(itemId);
+        }
+    }
+
+    /* ================= SEARCH ================= */
+
+    public List<Item> searchByName(String name) {
+
+        List<Item> result = new ArrayList<>();
+
+        for (Auction auction : auctions.values()) {
+
+            for (Item item : auction.items.values()) {
+
+                if (item.name.toLowerCase().contains(name.toLowerCase())) {
+                    result.add(item);
+                }
+            }
+        }
+
+        return result;
+    }
+
+    public List<Item> searchByCategory(String category) {
+
+        List<Item> result = new ArrayList<>();
+
+        for (Auction auction : auctions.values()) {
+
+            for (Item item : auction.items.values()) {
+
+                if (item.category.equalsIgnoreCase(category)) {
+                    result.add(item);
+                }
+            }
+        }
+
+        return result;
+    }
+
+    public List<Item> searchByPriceRange(double min, double max) {
+
+        List<Item> result = new ArrayList<>();
+
+        for (Auction auction : auctions.values()) {
+
+            for (Item item : auction.items.values()) {
+
+                if (item.startingBid >= min && item.startingBid <= max) {
+                    result.add(item);
+                }
+            }
+        }
+
+        return result;
+    }
+}
+
+/* ===================== MAIN ===================== */
+
+public class Main {
+
+    public static void main(String[] args) {
+
+        AuctionSystem system = new AuctionSystem();
+
+        User user1 = new User(1, "Alice");
+        User user2 = new User(2, "Bob");
+        User user3 = new User(3, "Charlie");
+
+        Auction auction = new Auction(101);
+
+        auction.addObserver(user1);
+        auction.addObserver(user2);
+        auction.addObserver(user3);
+
+        system.addAuction(auction);
+
+        Item item1 = new Item(1, "iPhone 15", "Latest Apple Phone",
+                "Electronics", 500);
+
+        Item item2 = new Item(2, "Gaming Laptop", "RTX Laptop",
+                "Electronics", 1200);
+
+        Item item3 = new Item(3, "Dining Table", "Wooden Table",
+                "Furniture", 300);
+
+        system.addItem(101, item1);
+        system.addItem(101, item2);
+        system.addItem(101, item3);
+
+        /* ================= BIDDING ================= */
+
+        auction.placeBid(1, new Bid(1, 550, user1));
+        auction.placeBid(1, new Bid(1, 540, user2)); // rejected
+        auction.placeBid(1, new Bid(1, 600, user2));
+        auction.placeBid(1, new Bid(1, 650, user1));
+
+        /* ================= SEARCH ================= */
+
+        System.out.println("\nSearch by Name: iPhone");
+
+        for (Item i : system.searchByName("iphone")) {
+            System.out.println(i.name);
+        }
+
+        System.out.println("\nSearch by Category: Electronics");
+
+        for (Item i : system.searchByCategory("Electronics")) {
+            System.out.println(i.name);
+        }
+
+        System.out.println("\nSearch by Price Range 200-700");
+
+        for (Item i : system.searchByPriceRange(200,700)) {
+            System.out.println(i.name);
+        }
+
+        /* ================= CLOSE AUCTION ================= */
+
+        system.closeBid(101,1);
+    }
+}
