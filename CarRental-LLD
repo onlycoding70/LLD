@@ -1,0 +1,278 @@
+/******************************************************************************
+
+The car rental system should allow customers to browse and reserve available cars for specific dates.
+Each car should have details such as make, model, year, license plate number, and rental price per day.
+Customers should be able to search for cars based on various criteria, such as car type, price range, and availability.
+The system should handle reservations, including creating, modifying, and canceling reservations.
+The system should keep track of the availability of cars and update their status accordingly.
+The system should handle customer information, including name, contact details, and driver's license information.
+The system should handle payment processing for reservations.
+The system should be able to handle concurrent reservations and ensure data consistency.
+
+Entities:=
+USER
+CAR
+RESERVATION
+CARTYPE
+PAYMENTPROCESSOR
+
+Patterns
+STRATEGY
+Singleton
+*******************************************************************************/
+import java.time.LocalDate;
+import java.util.*;
+import java.util.stream.Collectors;
+
+/* ================= ENUM ================= */
+
+enum CarType {
+    SEDAN,
+    JEEP,
+    SUV
+}
+
+/* ================= USER ================= */
+
+class User {
+    private int id;
+    private String name;
+    private String email;
+    private String phone;
+
+
+    public User(int id, String name, String email, String phone) {
+        this.id = id;
+        this.name = name;
+        this.email = email;
+        this.phone = phone;
+    }
+
+    public int getId() { return id; }
+    public String getName() { return name; }
+}
+
+/* ================= CAR ================= */
+
+class Car {
+    private int id;
+    private String plateNumber;
+    private String model;
+    private String year;
+    private double pricePerDay;
+    private CarType carType;
+
+    public Car(int id, String plateNumber, String model,
+               String year, double pricePerDay, CarType carType) {
+        this.id = id;
+        this.plateNumber = plateNumber;
+        this.model = model;
+        this.year = year;
+        this.pricePerDay = pricePerDay;
+        this.carType = carType;
+    }
+
+    public int getId() { return id; }
+    public double getPricePerDay() { return pricePerDay; }
+    public CarType getCarType() { return carType; }
+
+}
+
+/* ================= RESERVATION ================= */
+
+class Reservation {
+    private int id;
+    private Car car;
+    private User user;
+    private LocalDate startDate;
+    private LocalDate endDate;
+    private double price;
+
+    public Reservation(int id, Car car, User user,
+                       LocalDate startDate, LocalDate endDate, double price) {
+        this.id = id;
+        this.car = car;
+        this.user = user;
+        this.startDate = startDate;
+        this.endDate = endDate;
+        this.price = price;
+    }
+
+    public int getId() { return id; }
+    public Car getCar() { return car; }
+    public LocalDate getStartDate() { return startDate; }
+    public LocalDate getEndDate() { return endDate; }
+    public double getPrice() { return price; }
+}
+
+/* ================= PAYMENT STRATEGY ================= */
+
+interface PaymentStrategy {
+    void pay(double amount);
+}
+
+class CreditCardPayment implements PaymentStrategy {
+    @Override
+    public void pay(double amount) {
+        System.out.println("Paid " + amount + " using Credit Card");
+    }
+}
+
+class UpiPayment implements PaymentStrategy {
+    @Override
+    public void pay(double amount) {
+        System.out.println("Paid " + amount + " using UPI");
+    }
+}
+
+/* ================= PAYMENT PROCESSOR ================= */
+
+class PaymentProcessor {
+    private PaymentStrategy strategy;
+
+    public void setPaymentStrategy(PaymentStrategy strategy) {
+        this.strategy = strategy;
+    }
+
+    public void pay(double amount) {
+        if (strategy == null) {
+            throw new RuntimeException("Payment strategy not set!");
+        }
+        strategy.pay(amount);
+    }
+}
+
+/* ================= CAR RENTAL SYSTEM (Singleton - Eager) ================= */
+
+class CarRentalSystem {
+    
+    private static final CarRentalSystem INSTANCE = new CarRentalSystem();
+
+    private int carIdSeq = 1;
+    private int reservationIdSeq = 1;
+
+    private final Map<Integer, Car> cars = new HashMap<>();
+    private final Map<Integer, Reservation> reservations = new HashMap<>();
+
+    private final PaymentProcessor paymentProcessor = new PaymentProcessor();
+
+    private CarRentalSystem() { }
+
+    public static CarRentalSystem getInstance() {
+        return INSTANCE;
+    }
+
+    /* ================= ADD CAR ================= */
+
+    public void addCar(String plateNumber, String model,
+                       String year, double pricePerDay, CarType type) {
+        Car car = new Car(carIdSeq++, plateNumber, model, year, pricePerDay, type);
+        cars.put(car.getId(), car);
+    }
+
+    /* ================= SEARCH ================= */
+
+    public List<Car> searchCarByCarType(CarType type) {
+        return cars.values()
+                .stream()
+                .filter(car -> car.getCarType() == type)
+                .collect(Collectors.toList());
+    }
+
+    public List<Car> searchCarByPrice(double maxPrice) {
+        return cars.values()
+                .stream()
+                .filter(car -> car.getPricePerDay() <= maxPrice)
+                .collect(Collectors.toList());
+    }
+
+    /* ================= AVAILABILITY CHECK ================= */
+
+    public boolean isCarAvailable(Car car, LocalDate start, LocalDate end) {
+
+        for (Reservation reservation : reservations.values()) {
+            if (reservation.getCar().getId() == car.getId()) {
+
+                // Check date overlap
+                if (!(end.isBefore(reservation.getStartDate()) ||
+                        start.isAfter(reservation.getEndDate()))) {
+                    return false;
+                }
+            }
+        }
+        return true;
+    }
+
+    /* ================= MAKE RESERVATION (THREAD SAFE) ================= */
+
+    public synchronized Reservation makeReservation(User user, Car car,
+                                                    LocalDate start,
+                                                    LocalDate end) {
+
+        if (!isCarAvailable(car, start, end)) {
+            System.out.println("Car not available for selected dates.");
+            return null;
+        }
+
+        long days = start.until(end).getDays();
+        double totalPrice = days * car.getPricePerDay();
+
+        Reservation reservation = new Reservation(
+                reservationIdSeq++, car, user, start, end, totalPrice
+        );
+
+        reservations.put(reservation.getId(), reservation);
+
+        System.out.println("Reservation successful!");
+        return reservation;
+    }
+
+    /* ================= PAYMENT ================= */
+
+    public void setPaymentStrategy(PaymentStrategy strategy) {
+        paymentProcessor.setPaymentStrategy(strategy);
+    }
+
+    public void pay(Reservation reservation) {
+        paymentProcessor.pay(reservation.getPrice());
+    }
+
+    public Car getCarById(int id) {
+        return cars.get(id);
+    }
+}
+
+/* ================= MAIN ================= */
+
+public class Main {
+    public static void main(String[] args) {
+
+        CarRentalSystem system = CarRentalSystem.getInstance();
+
+        // Add cars
+        system.addCar("MH01AB1234", "Honda City", "2022", 2000, CarType.SEDAN);
+        system.addCar("MH02XY9876", "Mahindra Thar", "2023", 3500, CarType.JEEP);
+
+        // Create user
+        User user = new User(1, "Gopal", "gopal@gmail.com",
+                "9999999999");
+
+        // Search cars
+        List<Car> sedans = system.searchCarByCarType(CarType.SEDAN);
+        System.out.println("Available Sedans: " + sedans);
+
+        Car car = sedans.get(0);
+
+        // Make reservation
+        Reservation reservation = system.makeReservation(
+                user,
+                car,
+                LocalDate.now(),
+                LocalDate.now().plusDays(3)
+        );
+
+        // Payment
+        system.setPaymentStrategy(new CreditCardPayment());
+        system.pay(reservation);
+    }
+}
