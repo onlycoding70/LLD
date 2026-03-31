@@ -151,8 +151,8 @@ class CarRentalSystem {
     private int carIdSeq = 1;
     private int reservationIdSeq = 1;
 
-    private final Map<Integer, Car> cars = new HashMap<>();
-    private final Map<Integer, Reservation> reservations = new HashMap<>();
+    private final Map<Integer, Car> cars = new ConcurrentHashMap<>();
+    private final Map<Integer, Reservation> reservations = new ConcurrentHashMap<>();
 
     private final PaymentProcessor paymentProcessor = new PaymentProcessor();
 
